@@ -36,6 +36,10 @@ export const fileIcons: FileIcons = {
             ]
         },
         {
+            name: 'ndjson',
+            fileExtensions: ['ndjson', 'njson', 'jsonl']
+        },
+        {
             name: 'jinja',
             fileExtensions: ['jinja', 'jinja2', 'j2'],
             light: true
