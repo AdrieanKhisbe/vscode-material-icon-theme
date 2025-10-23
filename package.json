@@ -1,7 +1,7 @@
 {
-  "name": "material-icon-theme",
-  "displayName": "Material Icon Theme",
-  "description": "Material Design Icons for Visual Studio Code",
+  "name": "@ak/material-icon-theme",
+  "displayName": "Material Icon Theme (Custom)",
+  "description": "Material Design Icons for Visual Studio Code (Forked AK Edition)",
   "version": "5.27.0",
   "license": "MIT",
   "scripts": {
