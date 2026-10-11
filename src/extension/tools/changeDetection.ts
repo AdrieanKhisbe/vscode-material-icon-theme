@@ -1,6 +1,10 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import type { ConfigurationChangeEvent, ExtensionContext } from 'vscode';
+import { basename, join } from 'node:path';
+import {
+  type ConfigurationChangeEvent,
+  type ExtensionContext,
+  workspace,
+} from 'vscode';
 import {
   applyConfigToIcons,
   type Config,
@@ -9,6 +13,7 @@ import {
   extensionName,
   generateManifest,
   hasCustomClones,
+  isFileNameGlob,
   logger,
   manifestName,
   merge,
@@ -23,16 +28,21 @@ import { deepEqual } from './utils/deepEqual';
 /** Compare the workspace and the user configurations with the current setup of the icons. */
 export const detectConfigChanges = async (
   event: ConfigurationChangeEvent | undefined,
-  context: ExtensionContext
+  context: ExtensionContext,
+  refreshFileNames = false
 ) => {
   // if the changed config is not related to the extension
   if (event?.affectsConfiguration(extensionName) === false) return;
 
   const oldConfig = getConfigFromStorage(context);
   const config = getCurrentConfig();
+  const configChanged = !deepEqual(config, oldConfig);
+  const hasFileNameGlobs = Object.keys(config.files.associations).some(
+    isFileNameGlob
+  );
 
   // if the configuration has not changed
-  if (deepEqual(config, oldConfig)) {
+  if (!(refreshFileNames && hasFileNameGlobs) && !configChanged) {
     const isActivation = event === undefined;
     if (
       isActivation &&
@@ -45,19 +55,26 @@ export const detectConfigChanges = async (
     }
   }
 
-  await applyConfigToIcons(config, oldConfig);
+  if (configChanged) {
+    await applyConfigToIcons(config, oldConfig);
 
-  logger.info('Configuration changes detected and applied!');
+    logger.info('Configuration changes detected and applied!');
 
-  try {
-    await renameIconFiles(config);
-  } catch (error) {
-    logger.error(error);
+    try {
+      await renameIconFiles(config);
+    } catch (error) {
+      logger.error(error);
+    }
   }
 
-  const manifest = generateManifest(config);
+  const fileNames = hasFileNameGlobs
+    ? (await workspace.findFiles('**/*', null)).map((uri) => basename(uri.path))
+    : [];
+  const manifest = generateManifest(config, fileNames);
 
-  await clearCloneFolder(hasCustomClones(config));
+  // A filename refresh must not delete and recreate clone files: those filesystem
+  // events would trigger another refresh when developing the extension itself.
+  if (configChanged) await clearCloneFolder(hasCustomClones(config));
 
   const manifestWithClones = merge(
     manifest,

@@ -121,13 +121,17 @@ You can customize the icon associations directly in the user settings.
 
 With the `*.[extension]` pattern you can define custom file icon associations. For example you could define an icon for `*.sample` and every file that ends with `.sample` will have the defined icon. However, not all files with the same file extension always have the same icon. For some specific file names there is a special icon. In order to overwrite all the specific file icons as well, two asterisks must be set instead of one, i.e. `**.[extension]`.
 
-If there's no leading `*` it will be automatically configured as filename and not as file extension.
+You can also use `*` anywhere in a filename pattern, for example `Dockerfile*`, `*config*.json`, or `test-*.ts`. Each `*` matches zero or more characters within a filename, and matching is case insensitive. These patterns are expanded against files in the open workspace and built-in filename associations, and update automatically when workspace files are created, renamed, or deleted. Patterns match filenames in any folder; path globs and other glob operators are not supported. Exact filename associations take priority over filename patterns. If multiple filename patterns match, the last one in the settings wins.
+
+Without `*`, an association specifies an exact filename.
 
 ```json
 "material-icon-theme.files.associations": {
     "*.ts": "typescript",
     "**.json": "json",
-    "fileName.ts": "angular"
+    "fileName.ts": "angular",
+    "Dockerfile*": "docker",
+    "*config*.json": "settings"
 }
 ```
 

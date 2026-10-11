@@ -12,6 +12,7 @@ import {
   lightColorFileEnding,
   wildcardPattern,
 } from './constants';
+import { resolveFileAssociations } from './fileAssociations';
 import { getPath, getSVG, writeSVGFiles } from './shared/svg';
 import { validateHEXColorCode } from './shared/validation';
 
@@ -21,15 +22,22 @@ import { validateHEXColorCode } from './shared/validation';
  * @param fileIcons - The file icons to be used in the theme.
  * @param config - The configuration object for the icons.
  * @param manifest - The manifest object to be updated with the file icons.
+ * @param fileNames - Additional basenames to match against filename globs.
  * @returns The updated manifest object with the file icons.
  */
 export const loadFileIconDefinitions = (
   fileIcons: FileIcons,
   config: Config,
-  manifest: Manifest
+  manifest: Manifest,
+  fileNames: readonly string[] = []
 ): Manifest => {
   const enabledIcons = disableIconsByPack(fileIcons, config.activeIconPack);
-  const customIcons = getCustomIcons(config.files?.associations);
+  const customIcons = getCustomIcons(
+    resolveFileAssociations(config.files?.associations, [
+      ...enabledIcons.flatMap((icon) => icon.fileNames ?? []),
+      ...fileNames,
+    ])
+  );
   const allFileIcons = [...fileIcons.icons, ...customIcons];
   const allEnabledIcons = [...enabledIcons, ...customIcons];
 
@@ -140,8 +148,8 @@ const mapSpecificFileIcons = (
     const shouldOverwriteFileNames = Object.keys(customFileAssociation).some(
       (key) => {
         // overwrite is enabled if there are two asterisks in the wildcard
-        if (!/^\*{2}\./.test(key)) return false;
-        const fileExtension = key.replace(wildcardPattern, '.');
+        if (!key.startsWith('**.') || !wildcardPattern.test(key)) return false;
+        const fileExtension = key.slice(2);
 
         // check if the file name contains the particular file extension
         // (e.g. extension ".md" in "Readme.md" -> then overwrite it with the *.md icon)
@@ -165,10 +173,14 @@ const mapSpecificFileIcons = (
     configMappingType[name] = icon.name;
     if (icon.light) {
       configLightMappingType[name] = `${icon.name}${lightColorFileEnding}`;
+    } else {
+      delete configLightMappingType[name];
     }
     if (icon.highContrast) {
       configHighContrastMappingType[name] =
         `${icon.name}${highContrastColorFileEnding}`;
+    } else {
+      delete configHighContrastMappingType[name];
     }
   });
   return manifest;
@@ -262,7 +274,7 @@ const getCustomIcons = (fileAssociations: IconAssociations | undefined) => {
       name: fileAssociations[fa].toLowerCase(),
     };
     if (wildcardPattern.test(fa)) {
-      icon.fileExtensions = [fa.toLowerCase().replace(wildcardPattern, '')];
+      icon.fileExtensions = [fa.toLowerCase().slice(fa.indexOf('.') + 1)];
     } else {
       icon.fileNames = [fa.toLowerCase()];
     }

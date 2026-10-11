@@ -94,6 +94,15 @@ const manifest = generateManifest(config);
 
 Not all configuration options are required. The `generateManifest` function uses default values for any options not provided.
 
+Filename associations support `*` patterns such as `Dockerfile*`. To match filenames beyond the built-in associations, pass their basenames as the optional second argument:
+
+```ts
+const manifest = generateManifest(
+  { files: { associations: { 'Dockerfile*': 'docker' } } },
+  ['Dockerfile', 'Dockerfile.custom']
+);
+```
+
 ## Icon packs
 
 The Material Icon Theme provides different icon packs. The icon pack can be changed by setting the `activeIconPack` in the configuration options. To get a list of all available icon packs, the `getIconPacks` function can be used:

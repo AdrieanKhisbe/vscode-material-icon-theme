@@ -14,8 +14,13 @@ import { loadLanguageIconDefinitions } from './languageGenerator';
 
 /**
  * Generate the manifest that will be written as JSON file.
+ * @param config - Theme configuration.
+ * @param fileNames - Additional basenames to match against filename globs.
  */
-export const generateManifest = (config?: ManifestConfig): Manifest => {
+export const generateManifest = (
+  config?: ManifestConfig,
+  fileNames: readonly string[] = []
+): Manifest => {
   const refinedConfig = padWithDefaultConfig(config);
   const manifest = createEmptyManifest();
   const languageIconDefinitions = loadLanguageIconDefinitions(
@@ -26,7 +31,8 @@ export const generateManifest = (config?: ManifestConfig): Manifest => {
   const fileIconDefinitions = loadFileIconDefinitions(
     fileIcons,
     refinedConfig,
-    manifest
+    manifest,
+    fileNames
   );
   const folderIconDefinitions = loadFolderIconDefinitions(
     folderIcons,

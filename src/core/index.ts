@@ -20,6 +20,7 @@ export {
   manifestName,
   openedFolder,
 } from './generator/constants';
+export { isFileNameGlob } from './generator/fileAssociations';
 export { generateFileIcons } from './generator/fileGenerator';
 export {
   generateFolderIcons,
