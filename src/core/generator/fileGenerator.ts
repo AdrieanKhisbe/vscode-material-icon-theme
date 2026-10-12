@@ -30,7 +30,8 @@ export const loadFileIconDefinitions = (
   config: Config,
   manifest: Manifest,
   fileNames: readonly string[] = [],
-  resolvedAssociations?: IconAssociations
+  resolvedAssociations?: IconAssociations,
+  fileConfigHash = getFileConfigHash(config)
 ): Manifest => {
   const enabledIcons = disableIconsByPack(fileIcons, config.activeIconPack);
   const customIcons = getCustomIcons(
@@ -45,12 +46,12 @@ export const loadFileIconDefinitions = (
 
   allFileIcons.forEach((icon) => {
     const isClone = icon.clone !== undefined;
-    manifest = setIconDefinitions(manifest, config, icon.name, isClone);
+    manifest = setIconDefinitions(manifest, fileConfigHash, icon.name, isClone);
 
     if (icon.light) {
       manifest = setIconDefinitions(
         manifest,
-        config,
+        fileConfigHash,
         icon.name,
         isClone,
         lightColorFileEnding
@@ -59,7 +60,7 @@ export const loadFileIconDefinitions = (
     if (icon.highContrast) {
       manifest = setIconDefinitions(
         manifest,
-        config,
+        fileConfigHash,
         icon.name,
         isClone,
         highContrastColorFileEnding
@@ -90,7 +91,7 @@ export const loadFileIconDefinitions = (
   // set default file icon
   manifest = setIconDefinitions(
     manifest,
-    config,
+    fileConfigHash,
     fileIcons.defaultIcon.name,
     false
   );
@@ -99,7 +100,7 @@ export const loadFileIconDefinitions = (
   if (fileIcons.defaultIcon.light && manifest.light) {
     manifest = setIconDefinitions(
       manifest,
-      config,
+      fileConfigHash,
       fileIcons.defaultIcon.name,
       false,
       lightColorFileEnding
@@ -112,7 +113,7 @@ export const loadFileIconDefinitions = (
   if (fileIcons.defaultIcon.highContrast) {
     manifest = setIconDefinitions(
       manifest,
-      config,
+      fileConfigHash,
       fileIcons.defaultIcon.name,
       false,
       highContrastColorFileEnding
@@ -132,6 +133,7 @@ export const withFileAssociations = (
   config: Config,
   associations: IconAssociations
 ): Manifest => {
+  const fileConfigHash = getFileConfigHash(config);
   const copyFileMappings = (manifest: Manifest): Manifest => ({
     ...manifest,
     fileNames: { ...manifest.fileNames },
@@ -144,7 +146,7 @@ export const withFileAssociations = (
     highContrast: base.highContrast && copyFileMappings(base.highContrast),
   };
   for (const icon of getCustomIcons(associations)) {
-    manifest = setIconDefinitions(manifest, config, icon.name, false);
+    manifest = setIconDefinitions(manifest, fileConfigHash, icon.name, false);
     if (icon.fileExtensions) {
       manifest = mapSpecificFileIcons(
         icon,
@@ -248,7 +250,7 @@ const disableIconsByPack = (
  * Set the icon definition in the manifest.
  *
  * @param manifest - The manifest object to be updated.
- * @param config - The configuration object for the icons.
+ * @param fileConfigHash - The prepared configuration hash.
  * @param iconName - The name of the icon.
  * @param isClone - Whether the icon is a clone.
  * @param appendix - The appendix to be added to the icon name.
@@ -256,7 +258,7 @@ const disableIconsByPack = (
  */
 const setIconDefinitions = (
   manifest: Manifest,
-  config: Config,
+  fileConfigHash: string,
   iconName: string,
   isClone: boolean,
   appendix: string = ''
@@ -265,7 +267,6 @@ const setIconDefinitions = (
   const key = `${iconName}${appendix}`;
   manifest.iconDefinitions ??= {};
   if (!manifest.iconDefinitions[key]) {
-    const fileConfigHash = getFileConfigHash(config);
     manifest.iconDefinitions[key] = {
       iconPath: `${iconFolderPath}${iconName}${appendix}${fileConfigHash}${ext}`,
     };

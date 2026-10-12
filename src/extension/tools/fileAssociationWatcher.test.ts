@@ -384,4 +384,66 @@ describe('incremental filename association watcher', () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(await watcher.getFileNames(associations)).toEqual([]);
   });
+
+  it('coalesces nested directory scans even when the child event arrives first', async () => {
+    const watcher = watchFileAssociations(vi.fn().mockResolvedValue(undefined));
+    await watcher.getFileNames(associations);
+    vi.mocked(workspace.fs.stat).mockResolvedValue({
+      type: FileType.Directory,
+      size: 0,
+      ctime: 0,
+      mtime: 0,
+    });
+    vi.mocked(workspace.findFiles).mockResolvedValue([
+      uri('/root/parent/Dockerfile.one'),
+      uri('/root/parent/child/Dockerfile.two'),
+    ]);
+    callbacks.create(uri('/root/parent/child'));
+    callbacks.create(uri('/root/parent'));
+    expect(await watcher.getFileNames(associations)).toEqual([
+      'dockerfile.one',
+      'dockerfile.two',
+    ]);
+    expect(workspace.findFiles).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(workspace.findFiles).mock.calls[1][0]).toMatchObject({
+      baseUri: { path: '/root/parent' },
+    });
+    watcher.dispose();
+  });
+
+  it('rescans recreated directories across deletion boundaries', async () => {
+    const watcher = watchFileAssociations(vi.fn().mockResolvedValue(undefined));
+    await watcher.getFileNames(associations);
+    vi.mocked(workspace.fs.stat).mockResolvedValue({
+      type: FileType.Directory,
+      size: 0,
+      ctime: 0,
+      mtime: 0,
+    });
+    vi.mocked(workspace.findFiles)
+      .mockResolvedValueOnce([uri('/root/parent/Dockerfile.before')])
+      .mockResolvedValueOnce([uri('/root/parent/Dockerfile.after')]);
+    callbacks.create(uri('/root/parent'));
+    callbacks.delete(uri('/root/parent'));
+    callbacks.create(uri('/root/parent'));
+    expect(await watcher.getFileNames(associations)).toEqual([
+      'dockerfile.after',
+    ]);
+    expect(workspace.findFiles).toHaveBeenCalledTimes(3);
+    watcher.dispose();
+  });
+
+  it('coalesces nested workspace additions and falls back to children after a failed parent scan', async () => {
+    const watcher = watchFileAssociations(vi.fn().mockResolvedValue(undefined));
+    await watcher.getFileNames(associations);
+    vi.mocked(workspace.findFiles)
+      .mockRejectedValueOnce(new Error('parent unavailable'))
+      .mockResolvedValueOnce([uri('/root/parent/child/Dockerfile.child')]);
+    callbacks.folders(folders(['/root/parent/child', '/root/parent'], []));
+    expect(await watcher.getFileNames(associations)).toEqual([
+      'dockerfile.child',
+    ]);
+    expect(workspace.findFiles).toHaveBeenCalledTimes(3);
+    watcher.dispose();
+  });
 });

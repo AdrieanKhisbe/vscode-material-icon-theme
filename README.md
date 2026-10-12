@@ -131,6 +131,8 @@ Filesystem events are batched, with at most 16 file metadata requests in flight.
 
 The index also tracks direct directory children, so deleting a folder visits its subtree rather than every workspace file. Glob patterns and built-in matches are prepared once per configuration, and resolved associations are passed directly into base generation. The [directory and resolver benchmark](benchmarks/directory-associations.ts) compares these changes against commit `bc968daa`, reports index setup separately, and checks equivalent output. Run it with `npx tsx benchmarks/directory-associations.ts`; see the [results and methodology](benchmarks/directory-results.json).
 
+Cold manifest generation updates mappings directly and shares one configuration hash. Nested folder creation events share a subtree scan within each batch, while deletions separate scan groups. Run `npx tsx benchmarks/cold-scans.ts` for the [cold-generation and scan benchmark](benchmarks/cold-scans.ts); its [recorded results](benchmarks/cold-scans-results.json) distinguish uncached generation from modeled scan latency.
+
 ```json
 "material-icon-theme.files.associations": {
     "*.ts": "typescript",

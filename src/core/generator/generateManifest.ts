@@ -1,4 +1,4 @@
-import { merge } from '../helpers/object';
+import { getFileConfigHash } from '../helpers/configHash';
 import { fileIcons } from '../icons/fileIcons';
 import { folderIcons } from '../icons/folderIcons';
 import { languageIcons } from '../icons/languageIcons';
@@ -36,27 +36,27 @@ const buildManifest = (
 ): Manifest => {
   const refinedConfig = padWithDefaultConfig(config);
   const manifest = createEmptyManifest();
-  const languageIconDefinitions = loadLanguageIconDefinitions(
+  const fileConfigHash = getFileConfigHash(refinedConfig);
+  loadLanguageIconDefinitions(
     languageIcons,
     refinedConfig,
-    manifest
+    manifest,
+    fileConfigHash
   );
-  const fileIconDefinitions = loadFileIconDefinitions(
+  loadFileIconDefinitions(
     fileIcons,
     refinedConfig,
     manifest,
     fileNames,
-    associations
+    associations,
+    fileConfigHash
   );
-  const folderIconDefinitions = loadFolderIconDefinitions(
+  loadFolderIconDefinitions(
     folderIcons,
     refinedConfig,
-    manifest
+    manifest,
+    fileConfigHash
   );
 
-  return merge<Manifest>(
-    languageIconDefinitions,
-    fileIconDefinitions,
-    folderIconDefinitions
-  );
+  return manifest;
 };

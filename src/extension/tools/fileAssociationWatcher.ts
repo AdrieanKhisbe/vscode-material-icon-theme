@@ -103,6 +103,30 @@ export const watchFileAssociations = (
     files.forEach(addFile);
   };
 
+  const scanFolders = async (folders: ReadonlyMap<string, Uri>) => {
+    const roots = new Set<string>();
+    for (const [key, uri] of [...folders].sort(
+      ([a], [b]) => a.length - b.length
+    )) {
+      let parent = key;
+      let covered = false;
+      while (parent.lastIndexOf('/') >= 0) {
+        parent = parent.slice(0, parent.lastIndexOf('/'));
+        if (roots.has(parent)) {
+          covered = true;
+          break;
+        }
+      }
+      if (covered || disposed) continue;
+      try {
+        await scanFolder(uri);
+        roots.add(key);
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+  };
+
   const readCreatedPaths = async (batch: readonly IndexEvent[]) => {
     const uris = [
       ...new Map(
@@ -140,25 +164,39 @@ export const watchFileAssociations = (
       if (disposed || !initialized) return;
       const before = revision;
       const stats = await readCreatedPaths(batch);
+      const folders = new Map<string, Uri>();
+      const collectFolder = (uri: Uri) => {
+        const key = uri.toString();
+        folders.set(key.endsWith('/') ? key.slice(0, -1) : key, uri);
+      };
+      const flushFolders = async () => {
+        await scanFolders(folders);
+        folders.clear();
+      };
       // Reads overlap, but mutations retain event order, including directory
       // deletions and renames. Duplicate creates share a single stat request.
       for (const event of batch) {
         if (disposed) return;
         try {
-          if (event.type === 'delete') removePath(event.uri);
-          else if (event.type === 'create') {
+          if (event.type === 'delete') {
+            // A deletion separates scan groups so recreations are scanned anew.
+            await flushFolders();
+            removePath(event.uri);
+          } else if (event.type === 'create') {
             const stat = stats.get(event.uri.toString());
             if (!stat) continue;
-            if (stat.type & FileType.Directory) await scanFolder(event.uri);
+            if (stat.type & FileType.Directory) collectFolder(event.uri);
             else if (stat.type & FileType.File) addFile(event.uri);
           } else {
+            if (event.removed.length > 0) await flushFolders();
             event.removed.forEach(removePath);
-            for (const uri of event.added) await scanFolder(uri);
+            event.added.forEach(collectFolder);
           }
         } catch (error) {
           logger.error(error);
         }
       }
+      await flushFolders();
       if (revision !== before) scheduleRefresh();
     });
   };

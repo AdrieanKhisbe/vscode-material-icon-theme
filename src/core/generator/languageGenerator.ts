@@ -1,5 +1,4 @@
 import { getFileConfigHash } from '../helpers/configHash';
-import { merge } from '../helpers/object';
 import type { Config, IconAssociations } from '../models/icons/config';
 import type { DefaultIcon } from '../models/icons/defaultIcon';
 import type { IconPackValue } from '../models/icons/iconPack';
@@ -23,7 +22,8 @@ import {
 export const loadLanguageIconDefinitions = (
   languageIcons: LanguageIcon[],
   config: Config,
-  manifest: Manifest
+  manifest: Manifest,
+  fileConfigHash = getFileConfigHash(config)
 ): Manifest => {
   const enabledLanguages = disableLanguagesByPack(
     languageIcons,
@@ -35,28 +35,29 @@ export const loadLanguageIconDefinitions = (
 
   allLanguageIcons.forEach((icon) => {
     const isClone = icon.clone !== undefined;
-    manifest = setIconDefinitions(manifest, config, icon, isClone);
+    manifest = setIconDefinitions(manifest, fileConfigHash, icon, isClone);
   });
 
   // Only map the specific language icons if they are enabled depending on the active icon pack
   allEnabledLanguageIcons.forEach((icon) => {
     if (icon.disabled) return;
-    manifest = merge(manifest, setLanguageIdentifiers(icon.name, icon.ids));
-    manifest.light = icon.light
-      ? merge(
-          manifest.light,
-          setLanguageIdentifiers(icon.name + lightColorFileEnding, icon.ids)
-        )
-      : manifest.light;
-    manifest.highContrast = icon.highContrast
-      ? merge(
-          manifest.highContrast,
-          setLanguageIdentifiers(
-            icon.name + highContrastColorFileEnding,
-            icon.ids
-          )
-        )
-      : manifest.highContrast;
+    setLanguageIdentifiers(manifest, icon.name, icon.ids);
+    if (icon.light) {
+      manifest.light ??= {};
+      setLanguageIdentifiers(
+        manifest.light,
+        icon.name + lightColorFileEnding,
+        icon.ids
+      );
+    }
+    if (icon.highContrast) {
+      manifest.highContrast ??= {};
+      setLanguageIdentifiers(
+        manifest.highContrast,
+        icon.name + highContrastColorFileEnding,
+        icon.ids
+      );
+    }
   });
 
   return manifest;
@@ -66,23 +67,23 @@ export const loadLanguageIconDefinitions = (
  * Set the icon definitions in the manifest.
  *
  * @param manifest - The manifest object to be updated.
- * @param config - The configuration object for the icons.
+ * @param fileConfigHash - The prepared configuration hash.
  * @param icon - The icon to be set in the manifest.
  * @returns The updated manifest object with the icon definitions.
  */
 const setIconDefinitions = (
   manifest: Manifest,
-  config: Config,
+  fileConfigHash: string,
   icon: DefaultIcon,
   isClone: boolean
 ): Manifest => {
   const ext = isClone ? cloneIconExtension : '.svg';
-  createIconDefinitions(manifest, config, icon.name, ext);
+  createIconDefinitions(manifest, fileConfigHash, icon.name, ext);
 
   if (icon.light) {
     createIconDefinitions(
       manifest,
-      config,
+      fileConfigHash,
       icon.name + lightColorFileEnding,
       ext
     );
@@ -90,7 +91,7 @@ const setIconDefinitions = (
   if (icon.highContrast) {
     createIconDefinitions(
       manifest,
-      config,
+      fileConfigHash,
       icon.name + highContrastColorFileEnding,
       ext
     );
@@ -103,17 +104,16 @@ const setIconDefinitions = (
  * Create the icon definitions in the manifest.
  *
  * @param manifest - The manifest object to be updated.
- * @param config - The configuration object for the icons.
+ * @param fileConfigHash - The prepared configuration hash.
  * @param iconName - The name of the icon.
  * @param ext - The file extension of the icon.
  */
 const createIconDefinitions = (
   manifest: Manifest,
-  config: Config,
+  fileConfigHash: string,
   iconName: string,
   ext: string
 ) => {
-  const fileConfigHash = getFileConfigHash(config);
   if (manifest.iconDefinitions) {
     manifest.iconDefinitions[iconName] = {
       iconPath: `${iconFolderPath}${iconName}${fileConfigHash}${ext}`,
@@ -126,17 +126,15 @@ const createIconDefinitions = (
  *
  * @param iconName - The name of the icon.
  * @param languageIds - The language identifiers to be set in the manifest.
- * @returns The partial manifest object with the language identifiers.
+ * @param manifest - The manifest to update.
  */
 const setLanguageIdentifiers = (
+  manifest: Manifest,
   iconName: string,
   languageIds: string[]
-): Partial<Manifest> => {
-  const obj: Partial<Manifest> = { languageIds: {} };
-  languageIds.forEach((id) => {
-    obj.languageIds![id as keyof Manifest] = iconName;
-  });
-  return obj;
+): void => {
+  manifest.languageIds ??= {};
+  for (const id of languageIds) manifest.languageIds[id] = iconName;
 };
 
 /**
