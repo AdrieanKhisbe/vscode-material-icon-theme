@@ -2,6 +2,7 @@ import { merge } from '../helpers/object';
 import { fileIcons } from '../icons/fileIcons';
 import { folderIcons } from '../icons/folderIcons';
 import { languageIcons } from '../icons/languageIcons';
+import type { Config, IconAssociations } from '../models/icons/config';
 import {
   createEmptyManifest,
   type Manifest,
@@ -20,6 +21,18 @@ import { loadLanguageIconDefinitions } from './languageGenerator';
 export const generateManifest = (
   config?: ManifestConfig,
   fileNames: readonly string[] = []
+): Manifest => buildManifest(config, fileNames);
+
+/** Build the cached base with associations already resolved by the caller. */
+export const generateManifestWithFileAssociations = (
+  config: Config,
+  associations: IconAssociations
+): Manifest => buildManifest(config, [], associations);
+
+const buildManifest = (
+  config?: ManifestConfig,
+  fileNames: readonly string[] = [],
+  associations?: IconAssociations
 ): Manifest => {
   const refinedConfig = padWithDefaultConfig(config);
   const manifest = createEmptyManifest();
@@ -32,7 +45,8 @@ export const generateManifest = (
     fileIcons,
     refinedConfig,
     manifest,
-    fileNames
+    fileNames,
+    associations
   );
   const folderIconDefinitions = loadFolderIconDefinitions(
     folderIcons,

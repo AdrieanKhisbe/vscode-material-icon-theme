@@ -29,14 +29,16 @@ export const loadFileIconDefinitions = (
   fileIcons: FileIcons,
   config: Config,
   manifest: Manifest,
-  fileNames: readonly string[] = []
+  fileNames: readonly string[] = [],
+  resolvedAssociations?: IconAssociations
 ): Manifest => {
   const enabledIcons = disableIconsByPack(fileIcons, config.activeIconPack);
   const customIcons = getCustomIcons(
-    resolveFileAssociations(config.files?.associations, [
-      ...enabledIcons.flatMap((icon) => icon.fileNames ?? []),
-      ...fileNames,
-    ])
+    resolvedAssociations ??
+      resolveFileAssociations(config.files?.associations, [
+        ...enabledIcons.flatMap((icon) => icon.fileNames ?? []),
+        ...fileNames,
+      ])
   );
   const allFileIcons = [...fileIcons.icons, ...customIcons];
   const allEnabledIcons = [...enabledIcons, ...customIcons];

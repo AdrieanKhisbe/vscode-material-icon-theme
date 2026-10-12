@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getDefaultConfig } from '../../generator/config/defaultConfig';
+import * as associationTools from '../../generator/fileAssociations';
 import {
+  createFileAssociationResolver,
   isFileNameGlob,
   resolveFileAssociations,
 } from '../../generator/fileAssociations';
@@ -8,7 +10,10 @@ import {
   loadFileIconDefinitions,
   withFileAssociations,
 } from '../../generator/fileGenerator';
-import { generateManifest } from '../../generator/generateManifest';
+import {
+  generateManifest,
+  generateManifestWithFileAssociations,
+} from '../../generator/generateManifest';
 import { fileIcons } from '../../icons/fileIcons';
 import type { IconAssociations } from '../../models/icons/config';
 import { createEmptyManifest } from '../../models/manifest';
@@ -139,6 +144,71 @@ describe('filename glob associations', () => {
     expect(
       generateManifest(config, []).fileNames?.['dockerfile.my-workspace']
     ).toBeUndefined();
+  });
+
+  it('reuses static matches and returns only additional workspace associations', () => {
+    const config = {
+      'Dockerfile*': 'docker',
+      '*config*.json': 'settings',
+      'Dockerfile.exact': 'text',
+      '*.ts': 'typescript',
+    };
+    const resolver = createFileAssociationResolver(config, [
+      'Dockerfile',
+      'my.config.json',
+    ]);
+    expect(resolver.staticAssociations).toEqual({
+      dockerfile: 'docker',
+      'my.config.json': 'settings',
+      'dockerfile.exact': 'text',
+      '*.ts': 'typescript',
+    });
+    const before = structuredClone(resolver.staticAssociations);
+    expect(
+      resolver.resolve([
+        'Dockerfile',
+        'Dockerfile.exact',
+        'DOCKERFILE.NEW',
+        'Dockerfile.new',
+        'other.config.json',
+      ])
+    ).toEqual({ 'dockerfile.new': 'docker', 'other.config.json': 'settings' });
+    expect(resolver.resolve([])).toEqual({});
+    expect(resolver.staticAssociations).toEqual(before);
+  });
+
+  it('passes resolved associations into base generation without resolving them again', () => {
+    const config = getDefaultConfig();
+    config.files.associations = { 'Dockerfile*': 'docker', '**.md': 'text' };
+    const knownNames = fileIcons.icons
+      .filter(
+        (icon) =>
+          !icon.enabledFor ||
+          icon.enabledFor.some((pack) => pack === config.activeIconPack)
+      )
+      .flatMap((icon) => icon.fileNames ?? []);
+    const resolver = createFileAssociationResolver(
+      config.files.associations,
+      knownNames
+    );
+    const spy = vi.spyOn(associationTools, 'resolveFileAssociations');
+    try {
+      const base = generateManifestWithFileAssociations(
+        config,
+        resolver.staticAssociations
+      );
+      expect(spy).not.toHaveBeenCalled();
+      const manifest = withFileAssociations(
+        base,
+        config,
+        resolver.resolve(['Dockerfile.custom'])
+      );
+      expect(spy).not.toHaveBeenCalled();
+      expect(manifest).toEqual(generateManifest(config, ['Dockerfile.custom']));
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it.each<IconAssociations>([

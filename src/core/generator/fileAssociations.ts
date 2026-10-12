@@ -22,27 +22,57 @@ export const createFileNameGlobMatcher = (
   return (name) => matchers.some((matcher) => matcher.test(name));
 };
 
+export type FileAssociationResolver = {
+  readonly staticAssociations: IconAssociations;
+  resolve: (fileNames: readonly string[]) => IconAssociations;
+};
+
+/** Compile patterns and resolve fixed names once per configuration. */
+export const createFileAssociationResolver = (
+  associations: IconAssociations = {},
+  knownFileNames: readonly string[] = []
+): FileAssociationResolver => {
+  const rules = Object.entries(associations)
+    .filter(([pattern]) => isFileNameGlob(pattern))
+    .map(([pattern, icon]) => ({ matcher: compileGlob(pattern), icon }));
+  const explicit = Object.fromEntries(
+    Object.entries(associations)
+      .filter(([pattern]) => !isFileNameGlob(pattern))
+      .map(([pattern, icon]) => [pattern.toLowerCase(), icon])
+  );
+  const match = (fileNames: readonly string[]): IconAssociations => {
+    const resolved: IconAssociations = {};
+    const names = new Set(fileNames.map((name) => name.toLowerCase()));
+    for (const { matcher, icon } of rules) {
+      for (const name of names) {
+        if (matcher.test(name)) resolved[name] = icon;
+      }
+    }
+    return resolved;
+  };
+
+  // Exact filenames and extension associations are already in the fixed base.
+  const staticAssociations = { ...match(knownFileNames), ...explicit };
+  return {
+    staticAssociations,
+    resolve: (fileNames) => {
+      const resolved = match(fileNames);
+      for (const [name, icon] of Object.entries(resolved)) {
+        if (
+          Object.hasOwn(explicit, name) ||
+          staticAssociations[name] === icon
+        ) {
+          delete resolved[name];
+        }
+      }
+      return resolved;
+    },
+  };
+};
+
 /** Expand filename globs into the exact names required by VS Code. */
 export const resolveFileAssociations = (
   associations: IconAssociations = {},
   fileNames: readonly string[] = []
-): IconAssociations => {
-  const resolved: IconAssociations = {};
-  const names = new Set(fileNames.map((name) => name.toLowerCase()));
-
-  for (const [pattern, icon] of Object.entries(associations)) {
-    if (!isFileNameGlob(pattern)) continue;
-
-    const matcher = compileGlob(pattern);
-    for (const name of names) {
-      if (matcher.test(name)) resolved[name] = icon;
-    }
-  }
-
-  // Explicit filenames take priority over globs regardless of settings order.
-  for (const [pattern, icon] of Object.entries(associations)) {
-    if (!isFileNameGlob(pattern)) resolved[pattern.toLowerCase()] = icon;
-  }
-
-  return resolved;
-};
+): IconAssociations =>
+  createFileAssociationResolver(associations, fileNames).staticAssociations;

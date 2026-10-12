@@ -22,6 +22,7 @@ export {
   openedFolder,
 } from './generator/constants';
 export {
+  createFileAssociationResolver,
   createFileNameGlobMatcher,
   isFileNameGlob,
   resolveFileAssociations,
@@ -34,7 +35,10 @@ export {
   generateFolderIcons,
   generateRootFolderIcons,
 } from './generator/folderGenerator';
-export { generateManifest } from './generator/generateManifest';
+export {
+  generateManifest,
+  generateManifestWithFileAssociations,
+} from './generator/generateManifest';
 export { validateOpacityValue } from './generator/iconOpacity';
 export { validateSaturationValue } from './generator/iconSaturation';
 export { renameIconFiles } from './generator/renameIconFiles';

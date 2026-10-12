@@ -5,10 +5,11 @@ import {
   applyConfigToIcons,
   type Config,
   clearCloneFolder,
+  createFileAssociationResolver,
   extensionName,
   fileIcons,
   generateCustomCloneManifest,
-  generateManifest,
+  generateManifestWithFileAssociations,
   hasCustomClones,
   type IconAssociations,
   isFileNameGlob,
@@ -18,7 +19,6 @@ import {
   merge,
   padWithDefaultConfig,
   renameIconFiles,
-  resolveFileAssociations,
   resolvePath,
   withFileAssociations,
   writeToFile,
@@ -33,7 +33,7 @@ const applied = new WeakMap<
     associations: IconAssociations;
     clones: Manifest;
     base: Manifest;
-    knownFileNames: readonly string[];
+    resolver: ReturnType<typeof createFileAssociationResolver>;
   }
 >();
 
@@ -56,20 +56,20 @@ export const detectConfigChanges = async (
   );
   const clonesMissing =
     hasCustomClones(config) && !existsSync(resolvePath('./../icons/clones'));
-  const knownFileNames =
+  const resolver =
     configChanged || !previous
-      ? fileIcons.icons
-          .filter(
-            (icon) =>
-              !icon.enabledFor ||
-              icon.enabledFor.some((pack) => pack === config.activeIconPack)
-          )
-          .flatMap((icon) => icon.fileNames ?? [])
-      : previous.knownFileNames;
-  const associations = resolveFileAssociations(config.files.associations, [
-    ...knownFileNames,
-    ...fileNames,
-  ]);
+      ? createFileAssociationResolver(
+          config.files.associations,
+          fileIcons.icons
+            .filter(
+              (icon) =>
+                !icon.enabledFor ||
+                icon.enabledFor.some((pack) => pack === config.activeIconPack)
+            )
+            .flatMap((icon) => icon.fileNames ?? [])
+        )
+      : previous.resolver;
+  const associations = resolver.resolve(fileNames);
 
   if (
     !configChanged &&
@@ -102,7 +102,12 @@ export const detectConfigChanges = async (
   }
 
   const base =
-    configChanged || !previous ? generateManifest(config) : previous.base;
+    configChanged || !previous
+      ? generateManifestWithFileAssociations(
+          config,
+          resolver.staticAssociations
+        )
+      : previous.base;
   const manifest = withFileAssociations(base, config, associations);
 
   // A filename refresh must not delete and recreate clone files: those filesystem
@@ -134,7 +139,7 @@ export const detectConfigChanges = async (
     associations,
     clones,
     base,
-    knownFileNames,
+    resolver,
   });
 };
 

@@ -13,6 +13,7 @@ import {
   isFileNameGlob,
   logger,
 } from '../../core';
+import { FilePathIndex } from './filePathIndex';
 import { deepEqual } from './utils/deepEqual';
 
 export type FileAssociationWatcher = Disposable & {
@@ -31,7 +32,7 @@ const eventBatchDelay = 10;
 export const watchFileAssociations = (
   refresh: () => Promise<void>
 ): FileAssociationWatcher => {
-  const paths = new Map<string, string>();
+  const paths = new FilePathIndex();
   const counts = new Map<string, number>();
   const matches = new Set<string>();
   let patterns: string[] = [];
@@ -68,9 +69,9 @@ export const watchFileAssociations = (
   };
 
   const addFile = (uri: Uri) => {
-    if (disposed || paths.has(uri.toString())) return;
+    if (disposed) return;
     const name = posix.basename(uri.path).toLowerCase();
-    paths.set(uri.toString(), name);
+    if (!paths.add(uri.toString(), name)) return;
     const count = counts.get(name) ?? 0;
     counts.set(name, count + 1);
     if (count === 0 && matcher(name)) {
@@ -79,10 +80,7 @@ export const watchFileAssociations = (
     }
   };
 
-  const removeFile = (key: string) => {
-    const name = paths.get(key);
-    if (name === undefined) return;
-    paths.delete(key);
+  const removeName = (name: string) => {
     const count = counts.get(name)! - 1;
     if (count > 0) {
       counts.set(name, count);
@@ -93,16 +91,8 @@ export const watchFileAssociations = (
   };
 
   const removePath = (uri: Uri) => {
-    const key = uri.toString();
-    if (paths.has(key)) {
-      removeFile(key);
-    } else {
-      // Directory deletion may be reported without individual child events.
-      const prefix = key.endsWith('/') ? key : `${key}/`;
-      for (const path of paths.keys()) {
-        if (path.startsWith(prefix)) removeFile(path);
-      }
-    }
+    // Directory deletion may be reported without individual child events.
+    paths.remove(uri.toString()).forEach(removeName);
   };
 
   const scanFolder = async (uri: Uri) => {

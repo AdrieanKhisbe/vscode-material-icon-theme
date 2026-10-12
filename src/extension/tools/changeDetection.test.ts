@@ -4,8 +4,9 @@ import { type ExtensionContext, workspace } from 'vscode';
 import {
   applyConfigToIcons,
   clearCloneFolder,
+  createFileAssociationResolver,
   generateCustomCloneManifest,
-  generateManifest,
+  generateManifestWithFileAssociations,
   getDefaultConfig,
   renameIconFiles,
   writeToFile,
@@ -29,7 +30,10 @@ vi.mock('../../core', async (importOriginal) => {
     renameIconFiles: vi.fn(),
     clearCloneFolder: vi.fn(),
     generateCustomCloneManifest: vi.fn(async () => ({})),
-    generateManifest: vi.fn(core.generateManifest),
+    generateManifestWithFileAssociations: vi.fn(
+      core.generateManifestWithFileAssociations
+    ),
+    createFileAssociationResolver: vi.fn(core.createFileAssociationResolver),
     writeToFile: vi.fn(),
   };
 });
@@ -75,7 +79,12 @@ describe('workspace filename association refresh', () => {
     );
 
     await detectConfigChanges(undefined, context, [], true);
-    expect(generateManifest).toHaveBeenCalledTimes(1);
+    expect(generateManifestWithFileAssociations).toHaveBeenCalledTimes(1);
+    expect(createFileAssociationResolver).toHaveBeenCalledTimes(1);
+    const resolved = vi.mocked(generateManifestWithFileAssociations).mock
+      .calls[0][1];
+    expect(resolved.dockerfile).toBe('docker');
+    expect(resolved['Dockerfile*']).toBeUndefined();
     expect(generateCustomCloneManifest).toHaveBeenCalledTimes(1);
     expect(
       writtenManifest().fileNames['dockerfile.my-workspace']
@@ -107,7 +116,7 @@ describe('workspace filename association refresh', () => {
       ],
       true
     );
-    expect(generateManifest).toHaveBeenCalledTimes(1);
+    expect(generateManifestWithFileAssociations).toHaveBeenCalledTimes(1);
     expect(writeToFile).toHaveBeenCalledTimes(1);
   });
 
@@ -163,7 +172,8 @@ describe('workspace filename association refresh', () => {
     await detectConfigChanges(undefined, context, ['Dockerfile.custom'], true);
     getCurrentConfig().files.associations = { 'Dockerfile*': 'text' };
     await detectConfigChanges(undefined, context, ['Dockerfile.custom'], true);
-    expect(generateManifest).toHaveBeenCalledTimes(2);
+    expect(generateManifestWithFileAssociations).toHaveBeenCalledTimes(2);
+    expect(createFileAssociationResolver).toHaveBeenCalledTimes(2);
     expect(writtenManifest().fileNames['dockerfile.custom']).toBe('text');
   });
 
