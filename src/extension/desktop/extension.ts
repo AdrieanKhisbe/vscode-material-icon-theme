@@ -6,8 +6,9 @@ import {
   env,
   workspace,
 } from 'vscode';
-import { initTranslations, logger } from '../../core';
+import { extensionName, initTranslations, logger } from '../../core';
 import { disableLogObserver, observeLogs } from '../logging/logger';
+import { getCurrentConfig } from '../shared/config';
 import { detectConfigChanges } from '../tools/changeDetection';
 import { watchFileAssociations } from '../tools/fileAssociationWatcher';
 import { registered } from '../tools/registered';
@@ -32,24 +33,29 @@ export const activate = async (context: ExtensionContext) => {
       event?: ConfigurationChangeEvent,
       refreshFileNames = false
     ) => {
-      const next = pending.then(() =>
-        detectConfigChanges(event, context, refreshFileNames)
-      );
+      const next = pending.then(async () => {
+        if (event?.affectsConfiguration(extensionName) === false) return;
+        const fileNames = await fileAssociations.getFileNames(
+          getCurrentConfig().files.associations
+        );
+        await detectConfigChanges(event, context, fileNames, refreshFileNames);
+      });
       pending = next.catch((error) => logger.error(error));
       return next;
     };
 
-    context.subscriptions.push(
-      watchFileAssociations(() => update(undefined, true))
+    const fileAssociations = watchFileAssociations(() =>
+      update(undefined, true)
     );
-
-    // Workspace filenames may differ even when the stored configuration matches.
-    await update(undefined, true);
+    context.subscriptions.push(fileAssociations);
 
     // Observe changes in the config
     context.subscriptions.push(
       workspace.onDidChangeConfiguration(async (event) => await update(event))
     );
+
+    // Workspace filenames may differ even when the stored configuration matches.
+    await update(undefined, true);
 
     logger.info('Extension activated!');
   } catch (error) {

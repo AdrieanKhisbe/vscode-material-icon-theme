@@ -125,6 +125,10 @@ You can also use `*` anywhere in a filename pattern, for example `Dockerfile*`, 
 
 Without `*`, an association specifies an exact filename.
 
+When filename patterns are configured, the extension indexes workspace filenames once and updates that index from filesystem events. It rewrites the icon manifest only when settings or resolved associations change. Changing a pattern reuses the index; newly added folders are scanned separately. Removing all filename patterns releases the index and its watchers.
+
+Filesystem events are batched, with at most 16 file metadata requests in flight. Filename-only updates reuse the base icon manifest and clone definitions. The [benchmark harness](benchmarks/file-associations.ts) compares this path with the prior sequential implementation using real local filesystem operations and validates identical manifest output. Run it with `npx tsx benchmarks/file-associations.ts`; the [recorded results](benchmarks/results.json) include raw samples, environment details, and measurement limitations.
+
 ```json
 "material-icon-theme.files.associations": {
     "*.ts": "typescript",

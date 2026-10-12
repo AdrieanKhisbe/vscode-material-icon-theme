@@ -124,6 +124,44 @@ export const loadFileIconDefinitions = (
   return manifest;
 };
 
+/** Apply resolved custom associations without rebuilding the cached theme. */
+export const withFileAssociations = (
+  base: Manifest,
+  config: Config,
+  associations: IconAssociations
+): Manifest => {
+  const copyFileMappings = (manifest: Manifest): Manifest => ({
+    ...manifest,
+    fileNames: { ...manifest.fileNames },
+    fileExtensions: { ...manifest.fileExtensions },
+  });
+  let manifest: Manifest = {
+    ...copyFileMappings(base),
+    iconDefinitions: { ...base.iconDefinitions },
+    light: base.light && copyFileMappings(base.light),
+    highContrast: base.highContrast && copyFileMappings(base.highContrast),
+  };
+  for (const icon of getCustomIcons(associations)) {
+    manifest = setIconDefinitions(manifest, config, icon.name, false);
+    if (icon.fileExtensions) {
+      manifest = mapSpecificFileIcons(
+        icon,
+        FileMappingType.FileExtensions,
+        manifest
+      );
+    }
+    if (icon.fileNames) {
+      manifest = mapSpecificFileIcons(
+        icon,
+        FileMappingType.FileNames,
+        manifest,
+        config.files.associations
+      );
+    }
+  }
+  return manifest;
+};
+
 /**
  * Map the file extensions and the filenames to the related icons.
  *

@@ -4,8 +4,13 @@ import {
   isFileNameGlob,
   resolveFileAssociations,
 } from '../../generator/fileAssociations';
-import { loadFileIconDefinitions } from '../../generator/fileGenerator';
+import {
+  loadFileIconDefinitions,
+  withFileAssociations,
+} from '../../generator/fileGenerator';
 import { generateManifest } from '../../generator/generateManifest';
+import { fileIcons } from '../../icons/fileIcons';
+import type { IconAssociations } from '../../models/icons/config';
 import { createEmptyManifest } from '../../models/manifest';
 
 describe('filename glob associations', () => {
@@ -135,4 +140,50 @@ describe('filename glob associations', () => {
       generateManifest(config, []).fileNames?.['dockerfile.my-workspace']
     ).toBeUndefined();
   });
+
+  it.each<IconAssociations>([
+    {
+      'Dockerfile*': 'docker',
+      '*config*.json': 'settings',
+      'Dockerfile.exact': 'text',
+    },
+    { '*': 'text', '*.ts': 'typescript', '**.md': 'markdown' },
+    { 'new-*': './custom-icon', '*.config*.json': 'settings' },
+  ])(
+    'updates a cached base exactly like a full generation: %j',
+    (associations) => {
+      const config = getDefaultConfig();
+      config.files.associations = associations;
+      const base = generateManifest(config);
+      const original = structuredClone(base);
+      const knownNames = fileIcons.icons
+        .filter(
+          (icon) =>
+            !icon.enabledFor ||
+            icon.enabledFor.some((pack) => pack === config.activeIconPack)
+        )
+        .flatMap((icon) => icon.fileNames ?? []);
+      for (const names of [
+        [
+          'Dockerfile.custom',
+          'Dockerfile.exact',
+          'my.config.local.json',
+          'new-icon',
+          'other.ts',
+        ],
+        ['new-other', 'unrelated.md'],
+        [],
+      ]) {
+        const manifest = withFileAssociations(
+          base,
+          config,
+          resolveFileAssociations(associations, [...knownNames, ...names])
+        );
+        expect(manifest).toEqual(generateManifest(config, names));
+        expect(manifest.folderNames).toBe(base.folderNames);
+        expect(manifest.languageIds).toBe(base.languageIds);
+        expect(base).toEqual(original);
+      }
+    }
+  );
 });

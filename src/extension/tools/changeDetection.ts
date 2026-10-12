@@ -1,54 +1,88 @@
 import { existsSync } from 'node:fs';
-import { basename, join } from 'node:path';
-import {
-  type ConfigurationChangeEvent,
-  type ExtensionContext,
-  workspace,
-} from 'vscode';
+import { join } from 'node:path';
+import type { ConfigurationChangeEvent, ExtensionContext } from 'vscode';
 import {
   applyConfigToIcons,
   type Config,
   clearCloneFolder,
-  customClonesIcons,
   extensionName,
+  fileIcons,
+  generateCustomCloneManifest,
   generateManifest,
   hasCustomClones,
+  type IconAssociations,
   isFileNameGlob,
   logger,
+  type Manifest,
   manifestName,
   merge,
   padWithDefaultConfig,
   renameIconFiles,
+  resolveFileAssociations,
   resolvePath,
+  withFileAssociations,
   writeToFile,
 } from '../../core';
 import { getCurrentConfig } from '../shared/config';
 import { deepEqual } from './utils/deepEqual';
 
+const applied = new WeakMap<
+  ExtensionContext,
+  {
+    config: Config;
+    associations: IconAssociations;
+    clones: Manifest;
+    base: Manifest;
+    knownFileNames: readonly string[];
+  }
+>();
+
 /** Compare the workspace and the user configurations with the current setup of the icons. */
 export const detectConfigChanges = async (
   event: ConfigurationChangeEvent | undefined,
   context: ExtensionContext,
+  fileNames: readonly string[] = [],
   refreshFileNames = false
 ) => {
   // if the changed config is not related to the extension
   if (event?.affectsConfiguration(extensionName) === false) return;
 
-  const oldConfig = getConfigFromStorage(context);
+  const previous = applied.get(context);
+  const oldConfig = previous?.config ?? getConfigFromStorage(context);
   const config = getCurrentConfig();
   const configChanged = !deepEqual(config, oldConfig);
   const hasFileNameGlobs = Object.keys(config.files.associations).some(
     isFileNameGlob
   );
+  const clonesMissing =
+    hasCustomClones(config) && !existsSync(resolvePath('./../icons/clones'));
+  const knownFileNames =
+    configChanged || !previous
+      ? fileIcons.icons
+          .filter(
+            (icon) =>
+              !icon.enabledFor ||
+              icon.enabledFor.some((pack) => pack === config.activeIconPack)
+          )
+          .flatMap((icon) => icon.fileNames ?? [])
+      : previous.knownFileNames;
+  const associations = resolveFileAssociations(config.files.associations, [
+    ...knownFileNames,
+    ...fileNames,
+  ]);
+
+  if (
+    !configChanged &&
+    !clonesMissing &&
+    previous &&
+    deepEqual(previous.associations, associations)
+  )
+    return;
 
   // if the configuration has not changed
   if (!(refreshFileNames && hasFileNameGlobs) && !configChanged) {
     const isActivation = event === undefined;
-    if (
-      isActivation &&
-      hasCustomClones(config) &&
-      !existsSync(resolvePath('./../icons/clones'))
-    ) {
+    if (isActivation && clonesMissing) {
       logger.info('Custom clones missing from disk, regenerating...');
     } else {
       return;
@@ -67,19 +101,19 @@ export const detectConfigChanges = async (
     }
   }
 
-  const fileNames = hasFileNameGlobs
-    ? (await workspace.findFiles('**/*', null)).map((uri) => basename(uri.path))
-    : [];
-  const manifest = generateManifest(config, fileNames);
+  const base =
+    configChanged || !previous ? generateManifest(config) : previous.base;
+  const manifest = withFileAssociations(base, config, associations);
 
   // A filename refresh must not delete and recreate clone files: those filesystem
   // events would trigger another refresh when developing the extension itself.
   if (configChanged) await clearCloneFolder(hasCustomClones(config));
 
-  const manifestWithClones = merge(
-    manifest,
-    await customClonesIcons(manifest, config)
-  );
+  const clones =
+    configChanged || clonesMissing || !previous
+      ? await generateCustomCloneManifest(manifest, config)
+      : previous.clones;
+  const manifestWithClones = merge(manifest, clones);
 
   const iconJsonPath = join(resolvePath(manifestName));
   await writeToFile(
@@ -94,11 +128,18 @@ export const detectConfigChanges = async (
     'Applied configuration: ' + JSON.stringify(config, undefined, 2)
   );
 
-  syncConfigWithStorage(config, context);
+  await syncConfigWithStorage(config, context);
+  applied.set(context, {
+    config: structuredClone(config),
+    associations,
+    clones,
+    base,
+    knownFileNames,
+  });
 };
 
 const syncConfigWithStorage = (config: Config, context: ExtensionContext) => {
-  context.globalState.update('config', {
+  return context.globalState.update('config', {
     version: context.extension.packageJSON.version,
     config,
   });

@@ -5,6 +5,23 @@ import { wildcardPattern } from './constants';
 export const isFileNameGlob = (pattern: string): boolean =>
   pattern.includes('*') && !wildcardPattern.test(pattern);
 
+const compileGlob = (pattern: string): RegExp => {
+  // Only '*' is special; all other characters are literal filename characters.
+  const expression = pattern
+    .split('*')
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[^/]*');
+  return new RegExp(`^${expression}$`, 'i');
+};
+
+/** Compile once so filesystem events only need to test their filename. */
+export const createFileNameGlobMatcher = (
+  patterns: readonly string[]
+): ((name: string) => boolean) => {
+  const matchers = patterns.filter(isFileNameGlob).map(compileGlob);
+  return (name) => matchers.some((matcher) => matcher.test(name));
+};
+
 /** Expand filename globs into the exact names required by VS Code. */
 export const resolveFileAssociations = (
   associations: IconAssociations = {},
@@ -16,12 +33,7 @@ export const resolveFileAssociations = (
   for (const [pattern, icon] of Object.entries(associations)) {
     if (!isFileNameGlob(pattern)) continue;
 
-    // Only '*' is special; all other characters are literal filename characters.
-    const expression = pattern
-      .split('*')
-      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join('[^/]*');
-    const matcher = new RegExp(`^${expression}$`, 'i');
+    const matcher = compileGlob(pattern);
     for (const name of names) {
       if (matcher.test(name)) resolved[name] = icon;
     }

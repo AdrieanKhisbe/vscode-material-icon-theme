@@ -34,8 +34,15 @@ import { cloneIcon, createCloneManifest } from './utils/cloning';
 export const customClonesIcons = async (
   manifest: Manifest,
   config: Config
+): Promise<Manifest> =>
+  merge(manifest, await generateCustomCloneManifest(manifest, config));
+
+/** Generate clone definitions separately so filename refreshes can reuse them. */
+export const generateCustomCloneManifest = async (
+  manifest: Manifest,
+  config: Config
 ): Promise<Manifest> => {
-  let clonedIconsManifest = merge<Manifest>({}, manifest);
+  let clonedIconsManifest: Manifest = {};
   const hash = getFileConfigHash(config);
 
   // Helper function to process clones
