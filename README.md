@@ -127,11 +127,7 @@ Without `*`, an association specifies an exact filename.
 
 When filename patterns are configured, the extension indexes workspace filenames once and updates that index from filesystem events. It rewrites the icon manifest only when settings or resolved associations change. Changing a pattern reuses the index; newly added folders are scanned separately. Removing all filename patterns releases the index and its watchers.
 
-Filesystem events are batched, with at most 16 file metadata requests in flight. Filename-only updates reuse the base icon manifest and clone definitions. The [benchmark harness](benchmarks/file-associations.ts) compares this path with the prior sequential implementation using real local filesystem operations and validates identical manifest output. Run it with `npx tsx benchmarks/file-associations.ts`; the [recorded results](benchmarks/results.json) include raw samples, environment details, and measurement limitations.
-
-The index also tracks direct directory children, so deleting a folder visits its subtree rather than every workspace file. Glob patterns and built-in matches are prepared once per configuration, and resolved associations are passed directly into base generation. The [directory and resolver benchmark](benchmarks/directory-associations.ts) compares these changes against commit `bc968daa`, reports index setup separately, and checks equivalent output. Run it with `npx tsx benchmarks/directory-associations.ts`; see the [results and methodology](benchmarks/directory-results.json).
-
-Cold manifest generation updates mappings directly and shares one configuration hash. Nested folder creation events share a subtree scan within each batch, while deletions separate scan groups. Run `npx tsx benchmarks/cold-scans.ts` for the [cold-generation and scan benchmark](benchmarks/cold-scans.ts); its [recorded results](benchmarks/cold-scans-results.json) distinguish uncached generation from modeled scan latency.
+Filesystem events are batched, with at most 16 file metadata requests in flight. Filename-only updates reuse the base icon manifest and clone definitions, cache choices for retained names, and skip unchanged settings persistence.
 
 ```json
 "material-icon-theme.files.associations": {

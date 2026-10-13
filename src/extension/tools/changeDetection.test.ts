@@ -188,4 +188,47 @@ describe('workspace filename association refresh', () => {
       writtenManifest().fileNames['dockerfile.my-workspace']
     ).toBeUndefined();
   });
+
+  it('persists configuration once for settings changes, not filename-only refreshes', async () => {
+    const context = createContext();
+    getCurrentConfig().files.associations = { 'Dockerfile*': 'docker' };
+    await detectConfigChanges(undefined, context, ['Dockerfile.one'], true);
+    await detectConfigChanges(undefined, context, ['Dockerfile.two'], true);
+    expect(context.globalState.update).toHaveBeenCalledTimes(1);
+    expect(writeToFile).toHaveBeenCalledTimes(2);
+    getCurrentConfig().files.associations = { 'Dockerfile*': 'text' };
+    await detectConfigChanges(undefined, context, ['Dockerfile.two'], true);
+    expect(context.globalState.update).toHaveBeenCalledTimes(2);
+    expect(writtenManifest().fileNames['dockerfile.two']).toBe('text');
+  });
+
+  it('does not rewrite already persisted settings during startup or refreshes', async () => {
+    getCurrentConfig().files.associations = { 'Dockerfile*': 'docker' };
+    const context = createContext();
+    await detectConfigChanges(undefined, context, ['Dockerfile.one'], true);
+    await detectConfigChanges(undefined, context, [], true);
+    expect(context.globalState.update).not.toHaveBeenCalled();
+    expect(writeToFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses filename choices across appearance changes but honors reordered globs', async () => {
+    getCurrentConfig().files.associations = {
+      '*': 'text',
+      'Dockerfile*': 'docker',
+    };
+    const context = createContext();
+    await detectConfigChanges(undefined, context, ['Dockerfile.custom'], true);
+    getCurrentConfig().folders.color = '#ff0000';
+    await detectConfigChanges(undefined, context, ['Dockerfile.custom'], true);
+    expect(createFileAssociationResolver).toHaveBeenCalledTimes(1);
+    expect(generateManifestWithFileAssociations).toHaveBeenCalledTimes(2);
+    getCurrentConfig().files.associations = {
+      'Dockerfile*': 'docker',
+      '*': 'text',
+    };
+    await detectConfigChanges(undefined, context, ['Dockerfile.custom'], true);
+    expect(createFileAssociationResolver).toHaveBeenCalledTimes(2);
+    expect(writtenManifest().fileNames['dockerfile.custom']).toBe('text');
+    expect(context.globalState.update).toHaveBeenCalledTimes(2);
+  });
 });

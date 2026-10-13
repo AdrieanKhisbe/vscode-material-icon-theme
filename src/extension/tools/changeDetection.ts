@@ -50,14 +50,21 @@ export const detectConfigChanges = async (
   const previous = applied.get(context);
   const oldConfig = previous?.config ?? getConfigFromStorage(context);
   const config = getCurrentConfig();
-  const configChanged = !deepEqual(config, oldConfig);
+  // Rule order is significant when more than one glob matches a filename.
+  const associationsChanged = !deepEqual(
+    Object.entries(config.files.associations),
+    Object.entries(oldConfig.files.associations)
+  );
+  const configChanged = associationsChanged || !deepEqual(config, oldConfig);
   const hasFileNameGlobs = Object.keys(config.files.associations).some(
     isFileNameGlob
   );
   const clonesMissing =
     hasCustomClones(config) && !existsSync(resolvePath('./../icons/clones'));
   const resolver =
-    configChanged || !previous
+    associationsChanged ||
+    config.activeIconPack !== oldConfig.activeIconPack ||
+    !previous
       ? createFileAssociationResolver(
           config.files.associations,
           fileIcons.icons
@@ -129,13 +136,15 @@ export const detectConfigChanges = async (
 
   logger.info('Updated the manifest file.');
 
-  logger.debug(
-    'Applied configuration: ' + JSON.stringify(config, undefined, 2)
-  );
-
-  await syncConfigWithStorage(config, context);
+  if (configChanged) {
+    logger.debug(
+      'Applied configuration: ' + JSON.stringify(config, undefined, 2)
+    );
+    await syncConfigWithStorage(config, context);
+  }
   applied.set(context, {
-    config: structuredClone(config),
+    config:
+      configChanged || !previous ? structuredClone(config) : previous.config,
     associations,
     clones,
     base,

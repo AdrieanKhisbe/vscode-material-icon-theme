@@ -177,6 +177,75 @@ describe('filename glob associations', () => {
     expect(resolver.staticAssociations).toEqual(before);
   });
 
+  it('tests patterns only for newly encountered names and evicts removed choices', () => {
+    const resolver = createFileAssociationResolver({
+      'Dockerfile*': 'docker',
+      '*config*': 'settings',
+    });
+    const spy = vi.spyOn(RegExp.prototype, 'test');
+    try {
+      resolver.resolve(['Dockerfile.one']);
+      const first = spy.mock.calls.length;
+      spy.mockClear();
+      resolver.resolve(['DOCKERFILE.ONE', 'Dockerfile.two']);
+      const added = spy.mock.calls.length;
+      spy.mockClear();
+      resolver.resolve(['Dockerfile.two']);
+      const retained = spy.mock.calls.length;
+      spy.mockClear();
+      resolver.resolve(['Dockerfile.one', 'Dockerfile.two']);
+      const readded = spy.mock.calls.length;
+      expect(first).toBe(2);
+      expect(added).toBe(2);
+      expect(retained).toBe(0);
+      expect(readded).toBe(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('copies only changed mappings and definitions without mutating the base', () => {
+    const config = getDefaultConfig();
+    const base = generateManifest(config);
+    const original = structuredClone(base);
+    const manifest = withFileAssociations(base, config, {
+      'new.name': 'typescript',
+    });
+    expect(manifest.fileNames).not.toBe(base.fileNames);
+    expect(manifest.fileExtensions).toBe(base.fileExtensions);
+    expect(manifest.iconDefinitions).toBe(base.iconDefinitions);
+    expect(manifest.light).toBe(base.light);
+    expect(manifest.highContrast).toBe(base.highContrast);
+    const unknown = withFileAssociations(base, config, {
+      'new.name': 'brand-new-icon',
+    });
+    expect(unknown.iconDefinitions).not.toBe(base.iconDefinitions);
+    expect(unknown.iconDefinitions?.['brand-new-icon']).toEqual({
+      iconPath: './../icons/brand-new-icon.svg',
+    });
+    expect(base).toEqual(original);
+  });
+
+  it('copies theme overrides independently when clearing stale variants', () => {
+    const config = getDefaultConfig();
+    const base = createEmptyManifest();
+    base.fileNames!['same.name'] = 'text';
+    base.light!.fileNames!['same.name'] = 'text_light';
+    base.highContrast!.fileNames!['same.name'] = 'text_highContrast';
+    base.iconDefinitions!.text = { iconPath: './../icons/text.svg' };
+    const manifest = withFileAssociations(base, config, {
+      'same.name': 'text',
+    });
+    expect(manifest.fileNames).toBe(base.fileNames);
+    expect(manifest.light?.fileNames?.['same.name']).toBeUndefined();
+    expect(manifest.highContrast?.fileNames?.['same.name']).toBeUndefined();
+    expect(manifest.light?.fileExtensions).toBe(base.light?.fileExtensions);
+    expect(base.light?.fileNames?.['same.name']).toBe('text_light');
+    expect(base.highContrast?.fileNames?.['same.name']).toBe(
+      'text_highContrast'
+    );
+  });
+
   it('passes resolved associations into base generation without resolving them again', () => {
     const config = getDefaultConfig();
     config.files.associations = { 'Dockerfile*': 'docker', '**.md': 'text' };

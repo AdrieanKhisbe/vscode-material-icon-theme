@@ -53,17 +53,33 @@ export const createFileAssociationResolver = (
 
   // Exact filenames and extension associations are already in the fixed base.
   const staticAssociations = { ...match(knownFileNames), ...explicit };
+  // Cache only the latest snapshot, rather than accumulating historical names.
+  const choices = new Map<string, string | null>();
   return {
     staticAssociations,
     resolve: (fileNames) => {
-      const resolved = match(fileNames);
-      for (const [name, icon] of Object.entries(resolved)) {
-        if (
-          Object.hasOwn(explicit, name) ||
-          staticAssociations[name] === icon
-        ) {
-          delete resolved[name];
+      const names = new Set(fileNames.map((name) => name.toLowerCase()));
+      for (const name of choices.keys()) {
+        if (!names.has(name)) choices.delete(name);
+      }
+      const resolved: IconAssociations = {};
+      for (const name of names) {
+        let icon = choices.get(name);
+        if (icon === undefined) {
+          icon = null;
+          if (!Object.hasOwn(explicit, name)) {
+            // The last matching rule wins; stop as soon as it is found.
+            for (let index = rules.length - 1; index >= 0; index--) {
+              const rule = rules[index];
+              if (rule.matcher.test(name)) {
+                if (staticAssociations[name] !== rule.icon) icon = rule.icon;
+                break;
+              }
+            }
+          }
+          choices.set(name, icon);
         }
+        if (icon !== null) resolved[name] = icon;
       }
       return resolved;
     },

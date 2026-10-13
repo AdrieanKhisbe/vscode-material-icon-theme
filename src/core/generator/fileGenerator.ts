@@ -133,35 +133,51 @@ export const withFileAssociations = (
   config: Config,
   associations: IconAssociations
 ): Manifest => {
-  const fileConfigHash = getFileConfigHash(config);
-  const copyFileMappings = (manifest: Manifest): Manifest => ({
-    ...manifest,
-    fileNames: { ...manifest.fileNames },
-    fileExtensions: { ...manifest.fileExtensions },
-  });
-  let manifest: Manifest = {
-    ...copyFileMappings(base),
-    iconDefinitions: { ...base.iconDefinitions },
-    light: base.light && copyFileMappings(base.light),
-    highContrast: base.highContrast && copyFileMappings(base.highContrast),
+  const manifest: Manifest = { ...base };
+  let fileConfigHash: string | undefined;
+  const overwrittenExtensions = Object.keys(config.files.associations)
+    .filter((key) => key.startsWith('**.') && wildcardPattern.test(key))
+    .map((key) => key.slice(2).toLowerCase());
+  const copyMapping = (
+    type: FileMappingType,
+    theme?: 'light' | 'highContrast'
+  ) => {
+    if (theme && manifest[theme] === base[theme])
+      manifest[theme] = { ...base[theme] };
+    const target = theme ? manifest[theme]! : manifest;
+    const source = theme ? base[theme]! : base;
+    if (target[type] === source[type]) target[type] = { ...source[type] };
+    return target[type]!;
   };
-  for (const icon of getCustomIcons(associations)) {
-    manifest = setIconDefinitions(manifest, fileConfigHash, icon.name, false);
-    if (icon.fileExtensions) {
-      manifest = mapSpecificFileIcons(
-        icon,
-        FileMappingType.FileExtensions,
-        manifest
-      );
+  for (const pattern of Object.keys(associations)) {
+    const iconName = associations[pattern].toLowerCase();
+    if (!manifest.iconDefinitions?.[iconName]) {
+      if (manifest.iconDefinitions === base.iconDefinitions) {
+        manifest.iconDefinitions = { ...base.iconDefinitions };
+      }
+      fileConfigHash ??= getFileConfigHash(config);
+      setIconDefinitions(manifest, fileConfigHash, iconName, false);
     }
-    if (icon.fileNames) {
-      manifest = mapSpecificFileIcons(
-        icon,
-        FileMappingType.FileNames,
-        manifest,
-        config.files.associations
-      );
-    }
+    const extension = wildcardPattern.test(pattern);
+    const type = extension
+      ? FileMappingType.FileExtensions
+      : FileMappingType.FileNames;
+    const name = (
+      extension ? pattern.slice(pattern.indexOf('.') + 1) : pattern
+    ).toLowerCase();
+    const overwritten =
+      !extension &&
+      overwrittenExtensions.some((ending) => name.includes(ending));
+    const mapping = manifest[type];
+    const lightMapping = manifest.light?.[type];
+    const highContrastMapping = manifest.highContrast?.[type];
+    if (overwritten || !mapping || !lightMapping || !highContrastMapping)
+      continue;
+    if (mapping[name] !== iconName) copyMapping(type)[name] = iconName;
+    if (lightMapping[name] !== undefined)
+      delete copyMapping(type, 'light')[name];
+    if (highContrastMapping[name] !== undefined)
+      delete copyMapping(type, 'highContrast')[name];
   }
   return manifest;
 };
