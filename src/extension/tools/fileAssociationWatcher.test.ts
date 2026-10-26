@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FileType,
   type Uri,
+  type WorkspaceFolder,
   type WorkspaceFoldersChangeEvent,
   workspace,
 } from 'vscode';
 import { watchFileAssociations } from './fileAssociationWatcher';
 
 const callbacks = vi.hoisted(() => ({
+  workspaceFolders: [] as WorkspaceFolder[],
   create: (_uri: Uri) => {},
   delete: (_uri: Uri) => {},
   folders: (_event: WorkspaceFoldersChangeEvent) => {},
@@ -29,6 +31,9 @@ vi.mock('vscode', () => ({
     ) {}
   },
   workspace: {
+    get workspaceFolders() {
+      return callbacks.workspaceFolders;
+    },
     findFiles: vi.fn(),
     fs: { stat: vi.fn() },
     createFileSystemWatcher: vi.fn(() => ({
@@ -70,6 +75,7 @@ const folders = (
 describe('incremental filename association watcher', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    callbacks.workspaceFolders = folders(['/root'], []).added.slice();
     vi.clearAllMocks();
     vi.mocked(workspace.findFiles).mockResolvedValue([]);
     vi.mocked(workspace.fs.stat).mockResolvedValue({
@@ -130,6 +136,36 @@ describe('incremental filename association watcher', () => {
       'dockerfile.custom',
     ]);
     expect(workspace.findFiles).toHaveBeenCalledTimes(1);
+    watcher.dispose();
+  });
+
+  it('reuses snapshots until matching names or patterns change', async () => {
+    vi.mocked(workspace.findFiles).mockResolvedValue([
+      uri('/root/Dockerfile.first'),
+      uri('/root/config.json'),
+    ]);
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const watcher = watchFileAssociations(refresh);
+    const first = await watcher.getFileNames(associations);
+    expect(await watcher.getFileNames(associations)).toBe(first);
+
+    callbacks.create(uri('/other/DOCKERFILE.FIRST'));
+    callbacks.create(uri('/root/unrelated.txt'));
+    await settle();
+    expect(await watcher.getFileNames(associations)).toBe(first);
+
+    callbacks.create(uri('/root/Dockerfile.second'));
+    await vi.advanceTimersByTimeAsync(210);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    const second = await watcher.getFileNames(associations);
+    expect(second).toEqual(['dockerfile.first', 'dockerfile.second']);
+    expect(second).not.toBe(first);
+    expect(first).toEqual(['dockerfile.first']);
+    expect(await watcher.getFileNames(associations)).toBe(second);
+
+    expect(await watcher.getFileNames({ '*config*': 'settings' })).toEqual([
+      'config.json',
+    ]);
     watcher.dispose();
   });
 
@@ -444,6 +480,216 @@ describe('incremental filename association watcher', () => {
       'dockerfile.child',
     ]);
     expect(workspace.findFiles).toHaveBeenCalledTimes(3);
+    watcher.dispose();
+  });
+  it('shares one file scan with folder discovery and reuses both snapshots', async () => {
+    vi.mocked(workspace.findFiles).mockResolvedValue([
+      uri('/root/project-api/src/file.ts'),
+      uri('/root/project-web/file.ts'),
+    ]);
+    const watcher = watchFileAssociations(vi.fn());
+    const rules = { 'project-*': 'src' };
+    const names = await watcher.getNames({ '*file*': 'text' }, rules);
+    expect(names).toEqual({
+      fileNames: ['file.ts'],
+      folderNames: ['project-api', 'project-web'],
+      rootFolderNames: [],
+    });
+    const next = await watcher.getNames({ '*file*': 'text' }, rules);
+    expect(next.fileNames).toBe(names.fileNames);
+    expect(next.folderNames).toBe(names.folderNames);
+    expect((await watcher.getNames({}, { 's*': 'src' })).folderNames).toEqual([
+      'src',
+    ]);
+    expect(workspace.findFiles).toHaveBeenCalledTimes(1);
+    watcher.dispose();
+  });
+
+  it('enables folder matching from an existing file index without rescanning', async () => {
+    vi.mocked(workspace.findFiles).mockResolvedValue([
+      uri('/root/project-api/file.ts'),
+    ]);
+    const watcher = watchFileAssociations(vi.fn());
+    await watcher.getNames({ '*file*': 'text' });
+    expect(
+      (await watcher.getNames({ '*file*': 'text' }, { 'project-*': 'src' }))
+        .folderNames
+    ).toEqual(['project-api']);
+    expect(workspace.findFiles).toHaveBeenCalledTimes(1);
+    expect(workspace.createFileSystemWatcher).toHaveBeenCalledTimes(1);
+    watcher.dispose();
+  });
+
+  it('discovers newly created empty folders and retains them after their last file is deleted', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const watcher = watchFileAssociations(refresh);
+    const rules = { 'project-*': 'src' };
+    expect((await watcher.getNames({}, rules)).folderNames).toEqual([]);
+    vi.mocked(workspace.fs.stat).mockResolvedValueOnce({
+      type: FileType.Directory,
+      size: 0,
+      ctime: 0,
+      mtime: 0,
+    });
+    callbacks.create(uri('/root/project-empty'));
+    await vi.advanceTimersByTimeAsync(210);
+    expect((await watcher.getNames({}, rules)).folderNames).toEqual([
+      'project-empty',
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    callbacks.create(uri('/root/project-empty/file.ts'));
+    await settle();
+    callbacks.delete(uri('/root/project-empty/file.ts'));
+    await vi.advanceTimersByTimeAsync(210);
+    expect((await watcher.getNames({}, rules)).folderNames).toEqual([
+      'project-empty',
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    callbacks.delete(uri('/root/project-empty'));
+    await vi.advanceTimersByTimeAsync(210);
+    expect((await watcher.getNames({}, rules)).folderNames).toEqual([]);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    watcher.dispose();
+  });
+
+  it('retains duplicate folder names until their last directory is removed', async () => {
+    vi.mocked(workspace.findFiles).mockResolvedValue([
+      uri('/root/one/project-api/file.ts'),
+      uri('/root/two/PROJECT-API/file.ts'),
+    ]);
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const watcher = watchFileAssociations(refresh);
+    const rules = { 'project-*': 'src' };
+    await watcher.getNames({}, rules);
+    callbacks.delete(uri('/root/one'));
+    await vi.advanceTimersByTimeAsync(210);
+    expect((await watcher.getNames({}, rules)).folderNames).toEqual([
+      'project-api',
+    ]);
+    expect(refresh).not.toHaveBeenCalled();
+    callbacks.delete(uri('/root/two'));
+    await vi.advanceTimersByTimeAsync(210);
+    expect((await watcher.getNames({}, rules)).folderNames).toEqual([]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    watcher.dispose();
+  });
+
+  it('updates folder renames even when filenames stay the same', async () => {
+    vi.mocked(workspace.findFiles).mockResolvedValueOnce([
+      uri('/root/project-old/file.ts'),
+    ]);
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const watcher = watchFileAssociations(refresh);
+    const rules = { 'project-*': 'src' };
+    await watcher.getNames({ '*file*': 'text' }, rules);
+    vi.mocked(workspace.fs.stat).mockResolvedValueOnce({
+      type: FileType.Directory,
+      size: 0,
+      ctime: 0,
+      mtime: 0,
+    });
+    vi.mocked(workspace.findFiles).mockResolvedValueOnce([
+      uri('/root/project-new/file.ts'),
+    ]);
+    callbacks.delete(uri('/root/project-old'));
+    callbacks.create(uri('/root/project-new'));
+    await vi.advanceTimersByTimeAsync(210);
+    expect(await watcher.getNames({ '*file*': 'text' }, rules)).toEqual({
+      fileNames: ['file.ts'],
+      folderNames: ['project-new'],
+      rootFolderNames: [],
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    watcher.dispose();
+  });
+
+  it('matches root basenames independently of display aliases without scans or file watchers', async () => {
+    callbacks.workspaceFolders = [
+      { uri: uri('/project-root'), name: 'unrelated-alias', index: 0 },
+    ];
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const watcher = watchFileAssociations(refresh);
+    const rules = { 'project-*': 'app' };
+    expect(await watcher.getNames({}, {}, rules)).toEqual({
+      fileNames: [],
+      folderNames: [],
+      rootFolderNames: ['project-root'],
+    });
+    callbacks.workspaceFolders = folders(['/project-second'], []).added.slice();
+    callbacks.folders(folders(['/project-second'], ['/project-root']));
+    await vi.advanceTimersByTimeAsync(210);
+    expect((await watcher.getNames({}, {}, rules)).rootFolderNames).toEqual([
+      'project-second',
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(workspace.findFiles).not.toHaveBeenCalled();
+    expect(workspace.fs.stat).not.toHaveBeenCalled();
+    expect(workspace.createFileSystemWatcher).not.toHaveBeenCalled();
+    watcher.dispose();
+  });
+
+  it('does not lose explicitly created empty child folders when parent scans are coalesced', async () => {
+    const watcher = watchFileAssociations(vi.fn());
+    const rules = { 'project-*': 'src' };
+    await watcher.getNames({}, rules);
+    vi.mocked(workspace.fs.stat).mockResolvedValue({
+      type: FileType.Directory,
+      size: 0,
+      ctime: 0,
+      mtime: 0,
+    });
+    callbacks.create(uri('/root/parent'));
+    callbacks.create(uri('/root/parent/project-empty'));
+    await settle();
+    expect((await watcher.getNames({}, rules)).folderNames).toEqual([
+      'project-empty',
+    ]);
+    expect(workspace.findFiles).toHaveBeenCalledTimes(2);
+    watcher.dispose();
+  });
+
+  it('clears the recursive index when only root patterns remain and rescans when re-enabled', async () => {
+    vi.mocked(workspace.findFiles).mockResolvedValue([
+      uri('/root/project-api/file.ts'),
+    ]);
+    const watcher = watchFileAssociations(vi.fn());
+    const rules = { 'project-*': 'src' };
+    await watcher.getNames({}, rules);
+    expect(
+      (await watcher.getNames({}, {}, { '*': 'app' })).folderNames
+    ).toEqual([]);
+    vi.mocked(workspace.findFiles).mockResolvedValue([]);
+    expect((await watcher.getNames({}, rules)).folderNames).toEqual([]);
+    expect(workspace.findFiles).toHaveBeenCalledTimes(2);
+    watcher.dispose();
+  });
+  it('keeps workspace roots outside the regular-folder namespace', async () => {
+    callbacks.workspaceFolders = folders(['/project-root'], []).added.slice();
+    vi.mocked(workspace.findFiles).mockResolvedValue([
+      uri('/project-root/project-child/file.ts'),
+    ]);
+    const watcher = watchFileAssociations(vi.fn());
+    expect(
+      await watcher.getNames({}, { 'project-*': 'src' }, { 'project-*': 'app' })
+    ).toEqual({
+      fileNames: [],
+      folderNames: ['project-child'],
+      rootFolderNames: ['project-root'],
+    });
+    watcher.dispose();
+  });
+
+  it('does not scan for unsupported folder path globs', async () => {
+    const watcher = watchFileAssociations(vi.fn());
+    expect(
+      await watcher.getNames({}, { 'parent/*': 'src' }, { 'parent/*': 'app' })
+    ).toEqual({
+      fileNames: [],
+      folderNames: [],
+      rootFolderNames: [],
+    });
+    expect(workspace.findFiles).not.toHaveBeenCalled();
+    expect(workspace.createFileSystemWatcher).not.toHaveBeenCalled();
     watcher.dispose();
   });
 });

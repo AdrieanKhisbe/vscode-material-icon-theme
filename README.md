@@ -202,6 +202,10 @@ The following configuration can customize the folder icons. It is also possible 
 }
 ```
 
+Folder associations also support `*` anywhere in a name, for example `"project-*": "src"`. Matching is case insensitive, exact associations take priority, and the last matching wildcard wins. Patterns match folder basenames in any directory; path globs and other glob operators are not supported. Wildcard matches use only the written pattern, while exact associations retain their existing prefixed variants such as `.name` and `_name`.
+
+Folder patterns share the file index and its batched filesystem updates. On startup, folders are inferred from file paths, so existing empty folders may keep their default icon until a later filesystem event discovers them. Newly created empty folders are indexed directly. There is no dedicated directory traversal at startup.
+
 #### Custom SVG folder icons
 
 Similar to the files, it is also possible to reference your own SVG icons for folder icons. Here it's important to provide two SVG files: one for the folder if it's closed and another one for the opened state. These two files - let's call them "folder-sample.svg" and "folder-sample-open.svg" - have to be placed into a directory which is relative to the extensions dist folder. This directory has to be somewhere inside of the `.vscode/extensions` folder.
@@ -266,6 +270,8 @@ To assign an icon (e.g. the server folder icon) to a root folder (e.g., `backend
   "backend": "server"
 }
 ```
+
+Root folder associations support the same wildcard rules independently of regular folder associations, for example `"project-*": "server"`. They match the actual directory basename, including empty workspace roots, rather than a custom workspace display name. Root-only patterns do not trigger a workspace file scan.
 
 #### Customize root folder icon color
 

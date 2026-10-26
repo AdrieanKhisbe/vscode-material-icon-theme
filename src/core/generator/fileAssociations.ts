@@ -5,7 +5,7 @@ import { wildcardPattern } from './constants';
 export const isFileNameGlob = (pattern: string): boolean =>
   pattern.includes('*') && !wildcardPattern.test(pattern);
 
-const compileGlob = (pattern: string): RegExp => {
+export const compileGlob = (pattern: string): RegExp => {
   // Only '*' is special; all other characters are literal filename characters.
   const expression = pattern
     .split('*')
@@ -31,13 +31,21 @@ export type FileAssociationResolver = {
 export const createFileAssociationResolver = (
   associations: IconAssociations = {},
   knownFileNames: readonly string[] = []
+): FileAssociationResolver =>
+  createNameAssociationResolver(associations, knownFileNames, isFileNameGlob);
+
+/** Shared bounded snapshot cache for file and folder basename patterns. */
+export const createNameAssociationResolver = (
+  associations: IconAssociations = {},
+  knownFileNames: readonly string[] = [],
+  isGlob: (pattern: string) => boolean = (pattern) => pattern.includes('*')
 ): FileAssociationResolver => {
   const rules = Object.entries(associations)
-    .filter(([pattern]) => isFileNameGlob(pattern))
+    .filter(([pattern]) => isGlob(pattern))
     .map(([pattern, icon]) => ({ matcher: compileGlob(pattern), icon }));
   const explicit = Object.fromEntries(
     Object.entries(associations)
-      .filter(([pattern]) => !isFileNameGlob(pattern))
+      .filter(([pattern]) => !isGlob(pattern))
       .map(([pattern, icon]) => [pattern.toLowerCase(), icon])
   );
   const match = (fileNames: readonly string[]): IconAssociations => {

@@ -5,6 +5,7 @@ import {
   applyConfigToIcons,
   clearCloneFolder,
   createFileAssociationResolver,
+  createFolderAssociationResolver,
   generateCustomCloneManifest,
   generateManifestWithFileAssociations,
   getDefaultConfig,
@@ -34,6 +35,9 @@ vi.mock('../../core', async (importOriginal) => {
       core.generateManifestWithFileAssociations
     ),
     createFileAssociationResolver: vi.fn(core.createFileAssociationResolver),
+    createFolderAssociationResolver: vi.fn(
+      core.createFolderAssociationResolver
+    ),
     writeToFile: vi.fn(),
   };
 });
@@ -60,6 +64,28 @@ describe('workspace filename association refresh', () => {
 
   const writtenManifest = () =>
     JSON.parse(vi.mocked(writeToFile).mock.calls.at(-1)![1] as string);
+
+  it('uses the supplied configuration snapshot without reading settings again', async () => {
+    const context = createContext();
+    const config = getDefaultConfig();
+    config.files.associations = { 'Dockerfile*': 'text' };
+    vi.mocked(getCurrentConfig).mockClear();
+
+    await detectConfigChanges(
+      undefined,
+      context,
+      ['Dockerfile.custom'],
+      true,
+      config
+    );
+
+    expect(getCurrentConfig).not.toHaveBeenCalled();
+    expect(writtenManifest().fileNames['dockerfile.custom']).toBe('text');
+    expect(context.globalState.update).toHaveBeenCalledWith('config', {
+      version: 'test',
+      config,
+    });
+  });
 
   it('refreshes unchanged settings and removes deleted filename matches', async () => {
     getCurrentConfig().files.associations = { 'Dockerfile*': 'docker' };
@@ -230,5 +256,121 @@ describe('workspace filename association refresh', () => {
     expect(createFileAssociationResolver).toHaveBeenCalledTimes(2);
     expect(writtenManifest().fileNames['dockerfile.custom']).toBe('text');
     expect(context.globalState.update).toHaveBeenCalledTimes(2);
+  });
+  it('refreshes both folder namespaces while reusing the base, definitions and persisted settings', async () => {
+    getCurrentConfig().folders.associations = { 'project-*': 'src' };
+    getCurrentConfig().rootFolders.associations = { 'project-*': 'app' };
+    const context = createContext();
+    await detectConfigChanges(undefined, context, [], true, undefined, {
+      folderNames: ['project-api'],
+      rootFolderNames: ['project-root'],
+    });
+    expect(writtenManifest().folderNames['project-api']).toBe('folder-src');
+    expect(writtenManifest().folderNamesExpanded['project-api']).toBe(
+      'folder-src-open'
+    );
+    expect(writtenManifest().rootFolderNames['project-root']).toBe(
+      'folder-app'
+    );
+    expect(writtenManifest().rootFolderNamesExpanded['project-root']).toBe(
+      'folder-app-open'
+    );
+    await detectConfigChanges(undefined, context, [], true, undefined, {
+      folderNames: ['project-web'],
+      rootFolderNames: ['project-next'],
+    });
+    expect(writtenManifest().folderNames['project-api']).toBeUndefined();
+    expect(writtenManifest().folderNames['project-web']).toBe('folder-src');
+    expect(writtenManifest().rootFolderNames['project-root']).toBeUndefined();
+    expect(writtenManifest().rootFolderNames['project-next']).toBe(
+      'folder-app'
+    );
+    expect(generateManifestWithFileAssociations).toHaveBeenCalledTimes(1);
+    expect(createFolderAssociationResolver).toHaveBeenCalledTimes(2);
+    expect(generateCustomCloneManifest).toHaveBeenCalledTimes(1);
+    expect(context.globalState.update).not.toHaveBeenCalled();
+    expect(clearCloneFolder).not.toHaveBeenCalled();
+  });
+
+  it('skips unchanged folder snapshots, including names covered by static mappings', async () => {
+    getCurrentConfig().folders.associations = {
+      's*c': 'test',
+      'project-*': 'src',
+    };
+    const context = createContext();
+    await detectConfigChanges(undefined, context, [], true, undefined, {
+      folderNames: ['project-api'],
+    });
+    await detectConfigChanges(undefined, context, [], true, undefined, {
+      folderNames: ['PROJECT-api', 'src', 'project-api'],
+    });
+    expect(writeToFile).toHaveBeenCalledTimes(1);
+    expect(writtenManifest().folderNames.src).toBe('folder-test');
+  });
+
+  it('invalidates reordered folder and root globs while retaining choices on color changes', async () => {
+    getCurrentConfig().folders.associations = {
+      '*': 'src',
+      'project-*': 'app',
+    };
+    getCurrentConfig().rootFolders.associations = {
+      '*': 'app',
+      'project-*': 'src',
+    };
+    const context = createContext();
+    const names = {
+      folderNames: ['project-api'],
+      rootFolderNames: ['project-root'],
+    };
+    await detectConfigChanges(undefined, context, [], true, undefined, names);
+    getCurrentConfig().folders.color = '#ff0000';
+    await detectConfigChanges(undefined, context, [], true, undefined, names);
+    expect(createFolderAssociationResolver).toHaveBeenCalledTimes(2);
+    getCurrentConfig().folders.associations = {
+      'project-*': 'app',
+      '*': 'src',
+    };
+    getCurrentConfig().rootFolders.associations = {
+      'project-*': 'src',
+      '*': 'app',
+    };
+    await detectConfigChanges(undefined, context, [], true, undefined, names);
+    expect(createFolderAssociationResolver).toHaveBeenCalledTimes(4);
+    expect(writtenManifest().folderNames['project-api']).toBe('folder-src');
+    expect(writtenManifest().rootFolderNames['project-root']).toBe(
+      'folder-app'
+    );
+  });
+
+  it('keeps custom clone overlays on folder-only refreshes', async () => {
+    getCurrentConfig().folders.associations = { 'project-*': 'src' };
+    vi.mocked(generateCustomCloneManifest).mockResolvedValue({
+      folderNames: { 'project-clone': 'folder-custom' },
+    });
+    const context = createContext();
+    await detectConfigChanges(undefined, context, [], true, undefined, {
+      folderNames: ['project-clone'],
+    });
+    await detectConfigChanges(undefined, context, [], true, undefined, {
+      folderNames: ['project-clone', 'project-api'],
+    });
+    expect(writtenManifest().folderNames['project-clone']).toBe(
+      'folder-custom'
+    );
+    expect(writtenManifest().folderNames['project-api']).toBe('folder-src');
+    expect(generateCustomCloneManifest).toHaveBeenCalledTimes(1);
+  });
+  it('reclassifies static folder choices when the folder theme changes', async () => {
+    getCurrentConfig().folders.associations = { 's*c': 'test' };
+    const context = createContext();
+    await detectConfigChanges(undefined, context, [], true, undefined, {
+      folderNames: ['src'],
+    });
+    getCurrentConfig().folders.theme = 'classic';
+    await detectConfigChanges(undefined, context, [], true, undefined, {
+      folderNames: ['src'],
+    });
+    expect(writtenManifest().folderNames.src).toBe('folder-test');
+    expect(createFolderAssociationResolver).toHaveBeenCalledTimes(4);
   });
 });

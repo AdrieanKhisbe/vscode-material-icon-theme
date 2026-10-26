@@ -103,6 +103,24 @@ const manifest = generateManifest(
 );
 ```
 
+Folder and root-folder associations support the same basename wildcard rules. Pass folder names through the optional third argument; existing calls remain compatible:
+
+```ts
+const manifest = generateManifest(
+  {
+    folders: { associations: { 'project-*': 'src' } },
+    rootFolders: { associations: { 'project-*': 'server' } },
+  },
+  [],
+  {
+    folderNames: ['project-api', 'project-web'],
+    rootFolderNames: ['project-workspace'],
+  }
+);
+```
+
+The module does not scan the filesystem. Exact folder associations retain their prefixed aliases, while wildcard matches follow only the written pattern.
+
 ## Icon packs
 
 The Material Icon Theme provides different icon packs. The icon pack can be changed by setting the `activeIconPack` in the configuration options. To get a list of all available icon packs, the `getIconPacks` function can be used:

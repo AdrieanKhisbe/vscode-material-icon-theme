@@ -9,6 +9,7 @@ export type ManifestConfig = RecursivePartial<
     files: Pick<Config['files'], 'associations'>;
   } & {
     folders: Pick<Config['folders'], 'associations' | 'theme'>;
+    rootFolders: Pick<Config['rootFolders'], 'associations'>;
   }
 >;
 

@@ -6,13 +6,16 @@ import {
   type Config,
   clearCloneFolder,
   createFileAssociationResolver,
+  createFolderAssociationResolver,
   extensionName,
+  type FolderNames,
   fileIcons,
   generateCustomCloneManifest,
   generateManifestWithFileAssociations,
   hasCustomClones,
   type IconAssociations,
   isFileNameGlob,
+  isFolderNameGlob,
   logger,
   type Manifest,
   manifestName,
@@ -21,6 +24,7 @@ import {
   renameIconFiles,
   resolvePath,
   withFileAssociations,
+  withFolderAssociations,
   writeToFile,
 } from '../../core';
 import { getCurrentConfig } from '../shared/config';
@@ -31,6 +35,10 @@ const applied = new WeakMap<
   {
     config: Config;
     associations: IconAssociations;
+    folderAssociations: IconAssociations;
+    rootAssociations: IconAssociations;
+    folderResolver?: ReturnType<typeof createFolderAssociationResolver>;
+    rootResolver?: ReturnType<typeof createFolderAssociationResolver>;
     clones: Manifest;
     base: Manifest;
     resolver: ReturnType<typeof createFileAssociationResolver>;
@@ -42,20 +50,34 @@ export const detectConfigChanges = async (
   event: ConfigurationChangeEvent | undefined,
   context: ExtensionContext,
   fileNames: readonly string[] = [],
-  refreshFileNames = false
+  refreshFileNames = false,
+  currentConfig?: Config,
+  folderNames: FolderNames = {}
 ) => {
   // if the changed config is not related to the extension
   if (event?.affectsConfiguration(extensionName) === false) return;
 
   const previous = applied.get(context);
   const oldConfig = previous?.config ?? getConfigFromStorage(context);
-  const config = getCurrentConfig();
+  const config = currentConfig ?? getCurrentConfig();
   // Rule order is significant when more than one glob matches a filename.
   const associationsChanged = !deepEqual(
     Object.entries(config.files.associations),
     Object.entries(oldConfig.files.associations)
   );
-  const configChanged = associationsChanged || !deepEqual(config, oldConfig);
+  const foldersChanged = !deepEqual(
+    Object.entries(config.folders.associations),
+    Object.entries(oldConfig.folders.associations)
+  );
+  const rootsChanged = !deepEqual(
+    Object.entries(config.rootFolders.associations),
+    Object.entries(oldConfig.rootFolders.associations)
+  );
+  const configChanged =
+    associationsChanged ||
+    foldersChanged ||
+    rootsChanged ||
+    !deepEqual(config, oldConfig);
   const hasFileNameGlobs = Object.keys(config.files.associations).some(
     isFileNameGlob
   );
@@ -77,17 +99,56 @@ export const detectConfigChanges = async (
         )
       : previous.resolver;
   const associations = resolver.resolve(fileNames);
+  const hasFolderGlobs =
+    config.folders.theme !== 'none' &&
+    [config.folders.associations, config.rootFolders.associations].some(
+      (values) => Object.keys(values).some(isFolderNameGlob)
+    );
+  let base = !configChanged ? previous?.base : undefined;
+  const getBase = () =>
+    (base ??= generateManifestWithFileAssociations(
+      config,
+      resolver.staticAssociations
+    ));
+  const folderRulesChanged =
+    config.activeIconPack !== oldConfig.activeIconPack ||
+    config.folders.theme !== oldConfig.folders.theme;
+  const folderResolver = !hasFolderGlobs
+    ? undefined
+    : !previous?.folderResolver || foldersChanged || folderRulesChanged
+      ? createFolderAssociationResolver(
+          config.folders.associations,
+          Object.keys(getBase().folderNames ?? {})
+        )
+      : previous.folderResolver;
+  const rootResolver = !hasFolderGlobs
+    ? undefined
+    : !previous?.rootResolver || rootsChanged || folderRulesChanged
+      ? createFolderAssociationResolver(
+          config.rootFolders.associations,
+          Object.keys(getBase().rootFolderNames ?? {})
+        )
+      : previous.rootResolver;
+  const folderAssociations =
+    folderResolver?.resolve(folderNames.folderNames ?? []) ?? {};
+  const rootAssociations =
+    rootResolver?.resolve(folderNames.rootFolderNames ?? []) ?? {};
 
   if (
     !configChanged &&
     !clonesMissing &&
     previous &&
-    deepEqual(previous.associations, associations)
+    deepEqual(previous.associations, associations) &&
+    deepEqual(previous.folderAssociations, folderAssociations) &&
+    deepEqual(previous.rootAssociations, rootAssociations)
   )
     return;
 
   // if the configuration has not changed
-  if (!(refreshFileNames && hasFileNameGlobs) && !configChanged) {
+  if (
+    !(refreshFileNames && (hasFileNameGlobs || hasFolderGlobs)) &&
+    !configChanged
+  ) {
     const isActivation = event === undefined;
     if (isActivation && clonesMissing) {
       logger.info('Custom clones missing from disk, regenerating...');
@@ -108,14 +169,14 @@ export const detectConfigChanges = async (
     }
   }
 
-  const base =
-    configChanged || !previous
-      ? generateManifestWithFileAssociations(
-          config,
-          resolver.staticAssociations
-        )
-      : previous.base;
-  const manifest = withFileAssociations(base, config, associations);
+  let manifest = withFileAssociations(getBase(), config, associations);
+  if (hasFolderGlobs)
+    manifest = withFolderAssociations(
+      manifest,
+      config,
+      folderAssociations,
+      rootAssociations
+    );
 
   // A filename refresh must not delete and recreate clone files: those filesystem
   // events would trigger another refresh when developing the extension itself.
@@ -146,8 +207,12 @@ export const detectConfigChanges = async (
     config:
       configChanged || !previous ? structuredClone(config) : previous.config,
     associations,
+    folderAssociations,
+    rootAssociations,
+    folderResolver,
+    rootResolver,
     clones,
-    base,
+    base: getBase(),
     resolver,
   });
 };

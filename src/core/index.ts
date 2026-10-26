@@ -32,6 +32,13 @@ export {
   withFileAssociations,
 } from './generator/fileGenerator';
 export {
+  createFolderAssociationResolver,
+  createFolderNameGlobMatcher,
+  type FolderNames,
+  isFolderNameGlob,
+  withFolderAssociations,
+} from './generator/folderAssociations';
+export {
   generateFolderIcons,
   generateRootFolderIcons,
 } from './generator/folderGenerator';

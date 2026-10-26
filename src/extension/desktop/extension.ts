@@ -35,10 +35,20 @@ export const activate = async (context: ExtensionContext) => {
     ) => {
       const next = pending.then(async () => {
         if (event?.affectsConfiguration(extensionName) === false) return;
-        const fileNames = await fileAssociations.getFileNames(
-          getCurrentConfig().files.associations
+        const config = getCurrentConfig();
+        const names = await fileAssociations.getNames(
+          config.files.associations,
+          config.folders.theme === 'none' ? {} : config.folders.associations,
+          config.folders.theme === 'none' ? {} : config.rootFolders.associations
         );
-        await detectConfigChanges(event, context, fileNames, refreshFileNames);
+        await detectConfigChanges(
+          event,
+          context,
+          names.fileNames,
+          refreshFileNames,
+          config,
+          names
+        );
       });
       pending = next.catch((error) => logger.error(error));
       return next;

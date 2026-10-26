@@ -13,17 +13,36 @@ export class FilePathIndex {
   private readonly files = new Map<string, string>();
   private readonly directories = new Map<string, Directory>();
 
-  add(key: string, name: string): boolean {
-    if (this.files.has(key)) return false;
-    this.files.set(key, name);
-    let child = parentOf(key);
-    if (child === undefined) return true;
-    const existing = this.directories.get(child);
-    if (existing) {
-      existing.files.add(key);
-      return true;
+  private trackDirectories = false;
+
+  constructor(
+    private readonly onDirectoryAdded: (key: string) => void = () => {},
+    private readonly onDirectoryRemoved: (key: string) => void = () => {}
+  ) {}
+
+  setTrackDirectories(enabled: boolean): void {
+    this.trackDirectories = enabled;
+    if (!enabled) {
+      for (const key of this.directories.keys()) this.prune(key);
     }
-    this.directories.set(child, { files: new Set([key]), children: new Set() });
+  }
+
+  directoryKeys(): IterableIterator<string> {
+    return this.directories.keys();
+  }
+
+  addDirectory(key: string): void {
+    const normalized = key.endsWith('/') ? key.slice(0, -1) : key;
+    if (!this.directories.has(normalized)) this.createDirectory(normalized);
+  }
+
+  private createDirectory(key: string, file?: string): void {
+    let child = key;
+    this.directories.set(child, {
+      files: new Set(file ? [file] : []),
+      children: new Set(),
+    });
+    if (this.trackDirectories) this.onDirectoryAdded(child);
     while (true) {
       const parent = parentOf(child);
       if (parent === undefined) break;
@@ -36,7 +55,19 @@ export class FilePathIndex {
         files: new Set(),
         children: new Set([child]),
       });
+      if (this.trackDirectories) this.onDirectoryAdded(parent);
       child = parent;
+    }
+  }
+
+  add(key: string, name: string): boolean {
+    if (this.files.has(key)) return false;
+    this.files.set(key, name);
+    const parent = parentOf(key);
+    if (parent !== undefined) {
+      const existing = this.directories.get(parent);
+      if (existing) existing.files.add(key);
+      else this.createDirectory(parent, key);
     }
     return true;
   }
@@ -68,6 +99,7 @@ export class FilePathIndex {
         this.files.delete(file);
       }
       this.directories.delete(directoryKey);
+      this.onDirectoryRemoved(directoryKey);
     }
     const parent = parentOf(root);
     if (parent !== undefined) {
@@ -83,12 +115,14 @@ export class FilePathIndex {
   }
 
   private prune(key: string): void {
+    if (this.trackDirectories) return;
     let current: string | undefined = key;
     while (current !== undefined) {
       const directory = this.directories.get(current);
       if (!directory || directory.files.size > 0 || directory.children.size > 0)
         return;
       this.directories.delete(current);
+      this.onDirectoryRemoved(current);
       const parent = parentOf(current);
       if (parent !== undefined)
         this.directories.get(parent)?.children.delete(current);

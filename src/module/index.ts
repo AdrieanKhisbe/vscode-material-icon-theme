@@ -1,6 +1,7 @@
 // Everything that is exported from this file will be exported to an npm package
 export {
   availableIconPacks,
+  type FolderNames,
   type FolderThemeName,
   generateManifest,
   type IconAssociations,

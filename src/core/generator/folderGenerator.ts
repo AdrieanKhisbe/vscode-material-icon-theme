@@ -13,6 +13,7 @@ import {
   lightColorFileEnding,
   openedFolder,
 } from './constants';
+import { extendFolderNames } from './folderAssociations';
 import { getPath, getSVG, writeSVGFiles } from './shared/svg';
 import { validateHEXColorCode } from './shared/validation';
 
@@ -253,29 +254,6 @@ const createIconDefinitions = (
 };
 
 /**
- * Extend the folder names with additional patterns.
- *
- * @param folderNames - The folder names to be extended.
- * @returns The extended folder names.
- */
-const extendFolderNames = (folderNames: string[]) => {
-  const names: string[] = [];
-  const patterns: [string, string][] = [
-    ['', ''],
-    ['.', ''],
-    ['_', ''],
-    ['-', ''],
-    ['__', '__'],
-  ];
-  folderNames.forEach((name) => {
-    patterns.forEach((style) => {
-      names.push(`${style[0]}${name}${style[1]}`);
-    });
-  });
-  return names;
-};
-
-/**
  * Set the folder names in the manifest.
  *
  * @param iconName - The name of the icon.
@@ -382,7 +360,9 @@ const getCustomIcons = (
     };
 
     const targetKey = isRootFolder ? 'rootFolderNames' : 'folderNames';
-    iconConfig[targetKey] = [folderName.toLowerCase()];
+    iconConfig[targetKey] = folderName.includes('*')
+      ? []
+      : [folderName.toLowerCase()];
 
     return iconConfig;
   });
