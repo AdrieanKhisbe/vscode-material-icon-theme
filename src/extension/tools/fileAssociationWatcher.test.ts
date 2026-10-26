@@ -692,4 +692,56 @@ describe('incremental filename association watcher', () => {
     expect(workspace.createFileSystemWatcher).not.toHaveBeenCalled();
     watcher.dispose();
   });
+  it.each([
+    {
+      removed: '/root',
+      retained: '/root/child',
+      expectedFiles: ['dockerfile.custom'],
+      expectedFolders: ['project-api', 'project-empty'],
+    },
+    {
+      removed: '/root/child',
+      retained: '/root',
+      expectedFiles: ['dockerfile.custom', 'dockerfile.outside'],
+      expectedFolders: ['project-api', 'project-empty', 'project-outside'],
+    },
+  ])(
+    'preserves indexed descendants when removing $removed and retaining $retained',
+    async ({ removed, retained, expectedFiles, expectedFolders }) => {
+      callbacks.workspaceFolders = folders(
+        ['/root', '/root/child'],
+        []
+      ).added.slice();
+      vi.mocked(workspace.findFiles)
+        .mockResolvedValueOnce([
+          uri('/root/child/project-api/Dockerfile.custom'),
+          uri('/root/project-outside/Dockerfile.outside'),
+        ])
+        .mockResolvedValue([]);
+      const watcher = watchFileAssociations(vi.fn());
+      const rules = { 'project-*': 'src' };
+      await watcher.getNames(associations, rules);
+      vi.mocked(workspace.fs.stat).mockResolvedValueOnce({
+        type: FileType.Directory,
+        size: 0,
+        ctime: 0,
+        mtime: 0,
+      });
+      callbacks.create(uri('/root/child/project-empty'));
+      await settle();
+      await watcher.getNames(associations, rules);
+      expect(workspace.findFiles).toHaveBeenCalledTimes(2);
+
+      callbacks.workspaceFolders = folders([retained], []).added.slice();
+      callbacks.folders(folders([], [removed]));
+      await settle();
+      const names = await watcher.getNames(associations, rules);
+      expect(names.fileNames).toEqual(expectedFiles);
+      expect(names.folderNames).toEqual(expectedFolders);
+      // Retained roots, files and empty directories are preserved without I/O.
+      expect(workspace.findFiles).toHaveBeenCalledTimes(2);
+      expect(workspace.fs.stat).toHaveBeenCalledTimes(1);
+      watcher.dispose();
+    }
+  );
 });

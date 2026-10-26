@@ -13,6 +13,7 @@ import {
   wildcardPattern,
 } from './constants';
 import { resolveFileAssociations } from './fileAssociations';
+import { createManifestMappingWriter } from './shared/manifestMappings';
 import { getPath, getSVG, writeSVGFiles } from './shared/svg';
 import { validateHEXColorCode } from './shared/validation';
 
@@ -138,17 +139,7 @@ export const withFileAssociations = (
   const overwrittenExtensions = Object.keys(config.files.associations)
     .filter((key) => key.startsWith('**.') && wildcardPattern.test(key))
     .map((key) => key.slice(2).toLowerCase());
-  const copyMapping = (
-    type: FileMappingType,
-    theme?: 'light' | 'highContrast'
-  ) => {
-    if (theme && manifest[theme] === base[theme])
-      manifest[theme] = { ...base[theme] };
-    const target = theme ? manifest[theme]! : manifest;
-    const source = theme ? base[theme]! : base;
-    if (target[type] === source[type]) target[type] = { ...source[type] };
-    return target[type]!;
-  };
+  const copyMapping = createManifestMappingWriter(base, manifest);
   for (const pattern of Object.keys(associations)) {
     const iconName = associations[pattern].toLowerCase();
     if (!manifest.iconDefinitions?.[iconName]) {

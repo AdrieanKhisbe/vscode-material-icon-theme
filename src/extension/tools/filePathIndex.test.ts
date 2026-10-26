@@ -68,4 +68,36 @@ describe('directory file index', () => {
     index.add('file:///root/project-new/file', 'file');
     expect(index.remove('file:///root')).toEqual(['file']);
   });
+  it('preserves nested workspace subtrees and still handles later physical deletions', () => {
+    const index = new FilePathIndex();
+    index.setTrackDirectories(true);
+    index.add('file:///root/outside/file', 'outside');
+    index.add('file:///root/child/inside/file', 'inside');
+    index.addDirectory('file:///root/child/empty');
+    expect(
+      index.removeWorkspaceFolder('file:///root/', ['file:///root/child'])
+    ).toEqual(['outside']);
+    expect([...index.directoryKeys()]).toContain('file:///root/child/empty');
+    expect([...index.directoryKeys()]).not.toContain('file:///root/outside');
+    expect(index.add('file:///root/child/new/file', 'new')).toBe(true);
+    expect(index.remove('file:///root/child').sort()).toEqual([
+      'inside',
+      'new',
+    ]);
+    expect([...index.directoryKeys()]).not.toContain(
+      'file:///root/child/empty'
+    );
+  });
+
+  it('does not confuse retained sibling roots with ancestors', () => {
+    const index = new FilePathIndex();
+    index.add('file:///root/child/file', 'removed');
+    index.add('file:///root/child-other/file', 'retained');
+    expect(
+      index.removeWorkspaceFolder('file:///root/child', [
+        'file:///root/child-other',
+      ])
+    ).toEqual(['removed']);
+    expect(index.remove('file:///root/child-other')).toEqual(['retained']);
+  });
 });

@@ -1,6 +1,7 @@
 import type { Config, IconAssociations } from '../models/icons/config';
 import type { Manifest } from '../models/manifest';
 import { compileGlob, createNameAssociationResolver } from './fileAssociations';
+import { createManifestMappingWriter } from './shared/manifestMappings';
 
 /**
  * Extend the folder names with additional patterns.
@@ -56,12 +57,6 @@ export const createFolderAssociationResolver = (
   return createNameAssociationResolver(expanded, knownNames);
 };
 
-type FolderMapping =
-  | 'folderNames'
-  | 'folderNamesExpanded'
-  | 'rootFolderNames'
-  | 'rootFolderNamesExpanded';
-
 /** Copy only changed mappings; definitions are prepared once in the base. */
 export const withFolderAssociations = (
   base: Manifest,
@@ -71,17 +66,7 @@ export const withFolderAssociations = (
 ): Manifest => {
   if (config.folders.theme === 'none') return base;
   const manifest = { ...base };
-  const copyMapping = (
-    key: FolderMapping,
-    theme?: 'light' | 'highContrast'
-  ) => {
-    if (theme && manifest[theme] === base[theme])
-      manifest[theme] = { ...base[theme] };
-    const target = theme ? manifest[theme]! : manifest;
-    const source = theme ? base[theme] : base;
-    if (target[key] === source?.[key]) target[key] = { ...source?.[key] };
-    return target[key]!;
-  };
+  const copyMapping = createManifestMappingWriter(base, manifest);
   for (const [values, key, expandedKey] of [
     [associations, 'folderNames', 'folderNamesExpanded'],
     [rootAssociations, 'rootFolderNames', 'rootFolderNamesExpanded'],

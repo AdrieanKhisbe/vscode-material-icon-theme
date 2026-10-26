@@ -109,6 +109,65 @@ export class FilePathIndex {
     return removed;
   }
 
+  /** Remove a workspace entry without removing paths covered by retained roots. */
+  removeWorkspaceFolder(
+    key: string,
+    retainedRoots: readonly string[]
+  ): string[] {
+    const root = key.endsWith('/') ? key.slice(0, -1) : key;
+    if (
+      retainedRoots.some(
+        (retained) => root === retained || root.startsWith(`${retained}/`)
+      )
+    )
+      return [];
+    const retained = new Set(
+      retainedRoots.filter(
+        (candidate) =>
+          candidate.startsWith(`${root}/`) && this.directories.has(candidate)
+      )
+    );
+    if (retained.size === 0) return this.remove(root);
+
+    // Keep the links leading to retained subtrees, including observed empty
+    // directories. No rediscovery query or traversal of retained trees is needed.
+    const ancestors = new Set<string>();
+    for (const retainedRoot of retained) {
+      let parent = parentOf(retainedRoot);
+      while (
+        parent !== undefined &&
+        (parent === root || parent.startsWith(`${root}/`))
+      ) {
+        ancestors.add(parent);
+        parent = parentOf(parent);
+      }
+    }
+    const removed: string[] = [];
+    const pending = [root];
+    while (pending.length > 0) {
+      const directoryKey = pending.pop()!;
+      if (retained.has(directoryKey)) continue;
+      const directory = this.directories.get(directoryKey);
+      if (!directory) continue;
+      for (const child of directory.children) pending.push(child);
+      for (const file of directory.files) {
+        removed.push(this.files.get(file)!);
+        this.files.delete(file);
+      }
+      if (ancestors.has(directoryKey)) directory.files.clear();
+      else {
+        this.directories.delete(directoryKey);
+        this.onDirectoryRemoved(directoryKey);
+        const parent = parentOf(directoryKey);
+        if (parent !== undefined)
+          this.directories.get(parent)?.children.delete(directoryKey);
+      }
+    }
+    const parent = parentOf(root);
+    if (parent !== undefined) this.prune(parent);
+    return removed;
+  }
+
   clear(): void {
     this.files.clear();
     this.directories.clear();

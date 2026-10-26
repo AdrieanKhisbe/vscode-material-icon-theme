@@ -181,7 +181,7 @@ const createIconClone = async (
   // get clones to be created
   const clones = getCloneData(iconClone, manifest, clonesFolder, hash);
   if (!clones) {
-    return manifest;
+    return {};
   }
 
   const clonesManifest = createCloneManifest();
@@ -196,7 +196,7 @@ const createIconClone = async (
         await writeToFile(clone.path, content);
       } catch (error) {
         logger.error(error);
-        return manifest;
+        return clonesManifest;
       }
 
       // sets the icon path for the cloned icon in the configuration

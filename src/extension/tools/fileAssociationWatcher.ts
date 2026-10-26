@@ -301,7 +301,11 @@ export const watchFileAssociations = (
             else if (stat.type & FileType.File) addFile(event.uri);
           } else {
             if (event.removed.length > 0) await flushFolders();
-            event.removed.forEach(removePath);
+            for (const uri of event.removed) {
+              paths
+                .removeWorkspaceFolder(uri.toString(), workspaceRoots)
+                .forEach(removeName);
+            }
             event.added.forEach(collectFolder);
           }
         } catch (error) {
