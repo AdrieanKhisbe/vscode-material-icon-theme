@@ -4,6 +4,7 @@ export {
   generateConfiguredFileIconClones,
   generateConfiguredFolderIconClones,
   generateConfiguredLanguageIconClones,
+  generateCustomCloneManifest,
   hasCustomClones,
 } from './generator/clones/clonesGenerator';
 export { clearCloneFolder } from './generator/clones/utils/cloneData';
@@ -20,12 +21,31 @@ export {
   manifestName,
   openedFolder,
 } from './generator/constants';
-export { generateFileIcons } from './generator/fileGenerator';
+export {
+  createFileAssociationResolver,
+  createFileNameGlobMatcher,
+  isFileNameGlob,
+  resolveFileAssociations,
+} from './generator/fileAssociations';
+export {
+  generateFileIcons,
+  withFileAssociations,
+} from './generator/fileGenerator';
+export {
+  createFolderAssociationResolver,
+  createFolderNameGlobMatcher,
+  type FolderNames,
+  isFolderNameGlob,
+  withFolderAssociations,
+} from './generator/folderAssociations';
 export {
   generateFolderIcons,
   generateRootFolderIcons,
 } from './generator/folderGenerator';
-export { generateManifest } from './generator/generateManifest';
+export {
+  generateManifest,
+  generateManifestWithFileAssociations,
+} from './generator/generateManifest';
 export { validateOpacityValue } from './generator/iconOpacity';
 export { validateSaturationValue } from './generator/iconSaturation';
 export { renameIconFiles } from './generator/renameIconFiles';

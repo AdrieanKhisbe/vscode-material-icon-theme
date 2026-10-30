@@ -121,13 +121,21 @@ You can customize the icon associations directly in the user settings.
 
 With the `*.[extension]` pattern you can define custom file icon associations. For example you could define an icon for `*.sample` and every file that ends with `.sample` will have the defined icon. However, not all files with the same file extension always have the same icon. For some specific file names there is a special icon. In order to overwrite all the specific file icons as well, two asterisks must be set instead of one, i.e. `**.[extension]`.
 
-If there's no leading `*` it will be automatically configured as filename and not as file extension.
+You can also use `*` anywhere in a filename pattern, for example `Dockerfile*`, `*config*.json`, or `test-*.ts`. Each `*` matches zero or more characters within a filename, and matching is case insensitive. These patterns are expanded against files in the open workspace and built-in filename associations, and update automatically when workspace files are created, renamed, or deleted. Patterns match filenames in any folder; path globs and other glob operators are not supported. Exact filename associations take priority over filename patterns. If multiple filename patterns match, the last one in the settings wins.
+
+Without `*`, an association specifies an exact filename.
+
+When filename patterns are configured, the extension indexes workspace filenames once and updates that index from filesystem events. It rewrites the icon manifest only when settings or resolved associations change. Changing a pattern reuses the index; newly added folders are scanned separately. Removing all filename patterns releases the index and its watchers.
+
+Filesystem events are batched, with at most 16 file metadata requests in flight. Filename-only updates reuse the base icon manifest and clone definitions, cache choices for retained names, and skip unchanged settings persistence.
 
 ```json
 "material-icon-theme.files.associations": {
     "*.ts": "typescript",
     "**.json": "json",
-    "fileName.ts": "angular"
+    "fileName.ts": "angular",
+    "Dockerfile*": "docker",
+    "*config*.json": "settings"
 }
 ```
 
@@ -194,6 +202,10 @@ The following configuration can customize the folder icons. It is also possible 
 }
 ```
 
+Folder associations also support `*` anywhere in a name, for example `"project-*": "src"`. Matching is case insensitive, exact associations take priority, and the last matching wildcard wins. Patterns match folder basenames in any directory; path globs and other glob operators are not supported. Wildcard matches use only the written pattern, while exact associations retain their existing prefixed variants such as `.name` and `_name`.
+
+Folder patterns share the file index and its batched filesystem updates. On startup, folders are inferred from file paths, so existing empty folders may keep their default icon until a later filesystem event discovers them. Newly created empty folders are indexed directly. There is no dedicated directory traversal at startup.
+
 #### Custom SVG folder icons
 
 Similar to the files, it is also possible to reference your own SVG icons for folder icons. Here it's important to provide two SVG files: one for the folder if it's closed and another one for the opened state. These two files - let's call them "folder-sample.svg" and "folder-sample-open.svg" - have to be placed into a directory which is relative to the extensions dist folder. This directory has to be somewhere inside of the `.vscode/extensions` folder.
@@ -258,6 +270,8 @@ To assign an icon (e.g. the server folder icon) to a root folder (e.g., `backend
   "backend": "server"
 }
 ```
+
+Root folder associations support the same wildcard rules independently of regular folder associations, for example `"project-*": "server"`. They match the actual directory basename, including empty workspace roots, rather than a custom workspace display name. Root-only patterns do not trigger a workspace file scan.
 
 #### Customize root folder icon color
 

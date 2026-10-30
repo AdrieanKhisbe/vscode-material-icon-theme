@@ -34,8 +34,15 @@ import { cloneIcon, createCloneManifest } from './utils/cloning';
 export const customClonesIcons = async (
   manifest: Manifest,
   config: Config
+): Promise<Manifest> =>
+  merge(manifest, await generateCustomCloneManifest(manifest, config));
+
+/** Generate clone definitions separately so filename refreshes can reuse them. */
+export const generateCustomCloneManifest = async (
+  manifest: Manifest,
+  config: Config
 ): Promise<Manifest> => {
-  let clonedIconsManifest = merge<Manifest>({}, manifest);
+  let clonedIconsManifest: Manifest = {};
   const hash = getFileConfigHash(config);
 
   // Helper function to process clones
@@ -174,7 +181,7 @@ const createIconClone = async (
   // get clones to be created
   const clones = getCloneData(iconClone, manifest, clonesFolder, hash);
   if (!clones) {
-    return manifest;
+    return {};
   }
 
   const clonesManifest = createCloneManifest();
@@ -189,7 +196,7 @@ const createIconClone = async (
         await writeToFile(clone.path, content);
       } catch (error) {
         logger.error(error);
-        return manifest;
+        return clonesManifest;
       }
 
       // sets the icon path for the cloned icon in the configuration

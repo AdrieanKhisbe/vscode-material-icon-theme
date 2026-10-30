@@ -94,6 +94,33 @@ const manifest = generateManifest(config);
 
 Not all configuration options are required. The `generateManifest` function uses default values for any options not provided.
 
+Filename associations support `*` patterns such as `Dockerfile*`. To match filenames beyond the built-in associations, pass their basenames as the optional second argument:
+
+```ts
+const manifest = generateManifest(
+  { files: { associations: { 'Dockerfile*': 'docker' } } },
+  ['Dockerfile', 'Dockerfile.custom']
+);
+```
+
+Folder and root-folder associations support the same basename wildcard rules. Pass folder names through the optional third argument; existing calls remain compatible:
+
+```ts
+const manifest = generateManifest(
+  {
+    folders: { associations: { 'project-*': 'src' } },
+    rootFolders: { associations: { 'project-*': 'server' } },
+  },
+  [],
+  {
+    folderNames: ['project-api', 'project-web'],
+    rootFolderNames: ['project-workspace'],
+  }
+);
+```
+
+The module does not scan the filesystem. Exact folder associations retain their prefixed aliases, while wildcard matches follow only the written pattern.
+
 ## Icon packs
 
 The Material Icon Theme provides different icon packs. The icon pack can be changed by setting the `activeIconPack` in the configuration options. To get a list of all available icon packs, the `getIconPacks` function can be used:

@@ -1,5 +1,4 @@
 import { getFileConfigHash } from '../helpers/configHash';
-import { merge } from '../helpers/object';
 import { logger } from '../logging/logger';
 import type { Config, IconAssociations } from '../models/icons/config';
 import type { DefaultIcon } from '../models/icons/defaultIcon';
@@ -14,6 +13,7 @@ import {
   lightColorFileEnding,
   openedFolder,
 } from './constants';
+import { extendFolderNames } from './folderAssociations';
 import { getPath, getSVG, writeSVGFiles } from './shared/svg';
 import { validateHEXColorCode } from './shared/validation';
 
@@ -28,7 +28,8 @@ import { validateHEXColorCode } from './shared/validation';
 export const loadFolderIconDefinitions = (
   folderIcons: FolderTheme[],
   config: Config,
-  manifest: Manifest
+  manifest: Manifest,
+  fileConfigHash = getFileConfigHash(config)
 ): Manifest => {
   manifest.hidesExplorerArrows = config.hidesExplorerArrows;
   const activeTheme = getEnabledFolderTheme(folderIcons, config.folders?.theme);
@@ -48,7 +49,7 @@ export const loadFolderIconDefinitions = (
   }
 
   allIcons.forEach((icon) => {
-    manifest = setIconDefinitions(manifest, config, icon);
+    manifest = setIconDefinitions(manifest, fileConfigHash, icon);
   });
 
   // Only map the specific folder icons if they are enabled depending on the active icon pack
@@ -56,35 +57,30 @@ export const loadFolderIconDefinitions = (
     if (icon.disabled) return;
     const folderNames = extendFolderNames(icon?.folderNames ?? []);
     const rootFolderNames = extendFolderNames(icon?.rootFolderNames ?? []);
-    manifest = merge(
-      manifest,
-      setFolderNames(icon.name, folderNames, rootFolderNames)
-    );
-    manifest.light = icon.light
-      ? merge(
-          manifest.light,
-          setFolderNames(
-            icon.name,
-            folderNames,
-            rootFolderNames,
-            lightColorFileEnding
-          )
-        )
-      : manifest.light;
-    manifest.highContrast = icon.highContrast
-      ? merge(
-          manifest.highContrast,
-          setFolderNames(
-            icon.name,
-            folderNames,
-            rootFolderNames,
-            highContrastColorFileEnding
-          )
-        )
-      : manifest.highContrast;
+    setFolderNames(manifest, icon.name, folderNames, rootFolderNames);
+    if (icon.light) {
+      manifest.light ??= {};
+      setFolderNames(
+        manifest.light,
+        icon.name,
+        folderNames,
+        rootFolderNames,
+        lightColorFileEnding
+      );
+    }
+    if (icon.highContrast) {
+      manifest.highContrast ??= {};
+      setFolderNames(
+        manifest.highContrast,
+        icon.name,
+        folderNames,
+        rootFolderNames,
+        highContrastColorFileEnding
+      );
+    }
   });
 
-  manifest = setDefaultFolderIcons(activeTheme, manifest, config);
+  manifest = setDefaultFolderIcons(activeTheme, manifest, fileConfigHash);
   return manifest;
 };
 
@@ -93,72 +89,59 @@ export const loadFolderIconDefinitions = (
  *
  * @param theme - The folder theme to be used.
  * @param manifest - The manifest object to be updated with the default folder icons.
- * @param config - The configuration object for the icons.
+ * @param fileConfigHash - The prepared configuration hash.
  * @returns The updated manifest object with the default folder icons.
  */
 const setDefaultFolderIcons = (
   theme: FolderTheme,
   manifest: Manifest,
-  config: Config
+  fileConfigHash: string
 ): Manifest => {
   const hasFolderIcons =
     !!theme.defaultIcon.name && theme.defaultIcon.name.length > 0;
-  if (hasFolderIcons) {
-    manifest = setIconDefinitions(manifest, config, theme.defaultIcon);
+  if (hasFolderIcons)
+    setIconDefinitions(manifest, fileConfigHash, theme.defaultIcon);
+  Object.assign(manifest, createDefaultIconConfigObject(hasFolderIcons, theme));
+  if (theme.defaultIcon.light) {
+    manifest.light ??= {};
+    Object.assign(
+      manifest.light,
+      createDefaultIconConfigObject(hasFolderIcons, theme, lightColorFileEnding)
+    );
   }
-  manifest = merge(
-    manifest,
-    createDefaultIconConfigObject(hasFolderIcons, theme, '')
-  );
-  manifest.light = theme.defaultIcon.light
-    ? merge(
-        manifest.light,
-        createDefaultIconConfigObject(
-          hasFolderIcons,
-          theme,
-          lightColorFileEnding
-        )
+  if (theme.defaultIcon.highContrast) {
+    manifest.highContrast ??= {};
+    Object.assign(
+      manifest.highContrast,
+      createDefaultIconConfigObject(
+        hasFolderIcons,
+        theme,
+        highContrastColorFileEnding
       )
-    : manifest.light;
-  manifest.highContrast = theme.defaultIcon.highContrast
-    ? merge(
+    );
+  }
+  Object.assign(manifest, createRootIconConfigObject(hasFolderIcons, theme));
+  if (theme.rootFolder) {
+    setIconDefinitions(manifest, fileConfigHash, theme.rootFolder);
+    if (theme.rootFolder.light) {
+      manifest.light ??= {};
+      Object.assign(
+        manifest.light,
+        createRootIconConfigObject(hasFolderIcons, theme, lightColorFileEnding)
+      );
+    }
+    if (theme.rootFolder.highContrast) {
+      manifest.highContrast ??= {};
+      Object.assign(
         manifest.highContrast,
-        createDefaultIconConfigObject(
+        createRootIconConfigObject(
           hasFolderIcons,
           theme,
           highContrastColorFileEnding
         )
-      )
-    : manifest.highContrast;
-
-  manifest = merge(
-    manifest,
-    createRootIconConfigObject(hasFolderIcons, theme, '')
-  );
-  if (theme.rootFolder) {
-    manifest = setIconDefinitions(manifest, config, theme.rootFolder);
-    manifest.light = theme.rootFolder.light
-      ? merge(
-          manifest.light,
-          createRootIconConfigObject(
-            hasFolderIcons,
-            theme,
-            lightColorFileEnding
-          )
-        )
-      : manifest.light;
-    manifest.highContrast = theme.rootFolder.highContrast
-      ? merge(
-          manifest.highContrast,
-          createRootIconConfigObject(
-            hasFolderIcons,
-            theme,
-            highContrastColorFileEnding
-          )
-        )
-      : manifest.highContrast;
+      );
+    }
   }
-
   return manifest;
 };
 
@@ -201,44 +184,34 @@ const disableIconsByPack = (
  * Set the icon definitions in the manifest.
  *
  * @param manifest - The manifest object to be updated.
- * @param config - The configuration object for the icons.
+ * @param fileConfigHash - The prepared configuration hash.
  * @param icon - The icon to be set in the manifest.
  * @param appendix - The appendix to be added to the icon name.
  * @returns The updated manifest object with the icon definitions.
  */
 const setIconDefinitions = (
   manifest: Manifest,
-  config: Config,
+  fileConfigHash: string,
   icon: FolderIcon | DefaultIcon
-) => {
+): Manifest => {
   const isClone = (icon as FolderIcon).clone !== undefined;
-
-  manifest = createIconDefinitions(manifest, config, icon.name, '', isClone);
-
-  if (icon.light) {
-    manifest = merge(
+  createIconDefinitions(manifest, fileConfigHash, icon.name, '', isClone);
+  if (icon.light)
+    createIconDefinitions(
       manifest,
-      createIconDefinitions(
-        manifest,
-        config,
-        icon.name,
-        lightColorFileEnding,
-        isClone
-      )
+      fileConfigHash,
+      icon.name,
+      lightColorFileEnding,
+      isClone
     );
-  }
-  if (icon.highContrast) {
-    manifest = merge(
+  if (icon.highContrast)
+    createIconDefinitions(
       manifest,
-      createIconDefinitions(
-        manifest,
-        config,
-        icon.name,
-        highContrastColorFileEnding,
-        isClone
-      )
+      fileConfigHash,
+      icon.name,
+      highContrastColorFileEnding,
+      isClone
     );
-  }
   return manifest;
 };
 
@@ -246,7 +219,7 @@ const setIconDefinitions = (
  * Create the icon definitions in the manifest.
  *
  * @param manifest - The manifest object to be updated.
- * @param config - The configuration object for the icons.
+ * @param fileConfigHash - The prepared configuration hash.
  * @param iconName - The name of the icon.
  * @param appendix - The appendix to be added to the icon name.
  * @param isClone - Whether the icon is a clone.
@@ -254,12 +227,11 @@ const setIconDefinitions = (
  */
 const createIconDefinitions = (
   manifest: Manifest,
-  config: Config,
+  fileConfigHash: string,
   iconName: string,
   appendix: string = '',
   isClone = false
 ): Manifest => {
-  const fileConfigHash = getFileConfigHash(config);
   const configIconDefinitions = manifest.iconDefinitions;
   const ext = isClone ? cloneIconExtension : '.svg';
   const key = `${iconName}${appendix}`;
@@ -282,75 +254,35 @@ const createIconDefinitions = (
 };
 
 /**
- * Extend the folder names with additional patterns.
- *
- * @param folderNames - The folder names to be extended.
- * @returns The extended folder names.
- */
-const extendFolderNames = (folderNames: string[]) => {
-  const names: string[] = [];
-  const patterns: [string, string][] = [
-    ['', ''],
-    ['.', ''],
-    ['_', ''],
-    ['-', ''],
-    ['__', '__'],
-  ];
-  folderNames.forEach((name) => {
-    patterns.forEach((style) => {
-      names.push(`${style[0]}${name}${style[1]}`);
-    });
-  });
-  return names;
-};
-
-/**
  * Set the folder names in the manifest.
  *
  * @param iconName - The name of the icon.
  * @param folderNames - The folder names to be set in the manifest.
  * @param rootFolderNames - The root folder names to be set in the manifest.
  * @param appendix - The appendix to be added to the icon name.
- * @returns The partial manifest object with the folder names.
+ * @param manifest - The manifest to update.
  */
 const setFolderNames = (
+  manifest: Manifest,
   iconName: string,
   folderNames: string[],
   rootFolderNames: string[],
-  appendix: string = ''
-): Required<
-  Pick<
-    Manifest,
-    | 'folderNames'
-    | 'folderNamesExpanded'
-    | 'rootFolderNames'
-    | 'rootFolderNamesExpanded'
-  >
-> => {
-  // Helper function to populate folder-related properties
-  const createEntries = (names: string[]) => {
-    const regular: Record<string, string> = {};
-    const expanded: Record<string, string> = {};
-
-    names.forEach((name) => {
-      regular[name] = iconName + appendix;
-      expanded[name] = `${iconName}${openedFolder}${appendix}`;
-    });
-
-    return { regular, expanded };
-  };
-
-  // Create folder entries
-  const folderEntries = createEntries(folderNames);
-  const rootFolderEntries = createEntries(rootFolderNames);
-
-  // Return the structured object
-  return {
-    folderNames: folderEntries.regular,
-    folderNamesExpanded: folderEntries.expanded,
-    rootFolderNames: rootFolderEntries.regular,
-    rootFolderNamesExpanded: rootFolderEntries.expanded,
-  };
+  appendix = ''
+): void => {
+  manifest.folderNames ??= {};
+  manifest.folderNamesExpanded ??= {};
+  manifest.rootFolderNames ??= {};
+  manifest.rootFolderNamesExpanded ??= {};
+  for (const name of folderNames) {
+    manifest.folderNames[name] = iconName + appendix;
+    manifest.folderNamesExpanded[name] =
+      `${iconName}${openedFolder}${appendix}`;
+  }
+  for (const name of rootFolderNames) {
+    manifest.rootFolderNames[name] = iconName + appendix;
+    manifest.rootFolderNamesExpanded[name] =
+      `${iconName}${openedFolder}${appendix}`;
+  }
 };
 
 /**
@@ -428,7 +360,9 @@ const getCustomIcons = (
     };
 
     const targetKey = isRootFolder ? 'rootFolderNames' : 'folderNames';
-    iconConfig[targetKey] = [folderName.toLowerCase()];
+    iconConfig[targetKey] = folderName.includes('*')
+      ? []
+      : [folderName.toLowerCase()];
 
     return iconConfig;
   });
